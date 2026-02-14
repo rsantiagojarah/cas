@@ -1,0 +1,1 @@
+"""Motor central AXIS."""

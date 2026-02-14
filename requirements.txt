@@ -1,0 +1,1 @@
+# AXIS - Sin dependencias externas (Python 3.9+)
