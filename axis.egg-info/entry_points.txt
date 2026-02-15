@@ -1,0 +1,2 @@
+[console_scripts]
+cas = axis.cli.cli:main

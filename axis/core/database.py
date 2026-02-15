@@ -70,3 +70,31 @@ def get_data_csv_path(project_path: Path) -> Path:
 def csv_exists(project_path: Path) -> bool:
     """Verifica si existe el archivo data.csv."""
     return _get_data_csv_path(project_path).exists()
+
+
+def write_results_csv(
+    project_path: Path, filename: str, rows: list[dict], fieldnames: list[str] | None = None
+) -> Path:
+    """Guarda resultados en project_path/results/filename.csv."""
+    results_dir = project_path / "results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = results_dir / filename
+    if rows and not fieldnames:
+        fieldnames = list(rows[0].keys())
+    elif not fieldnames:
+        fieldnames = []
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    return csv_path
+
+
+def read_results_csv(project_path: Path, filename: str) -> list[dict]:
+    """Lee un archivo CSV de results/ del proyecto."""
+    csv_path = project_path / "results" / filename
+    if not csv_path.exists():
+        return []
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        return list(reader)

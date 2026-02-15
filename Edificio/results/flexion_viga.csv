@@ -1,0 +1,6 @@
+nombre,As (cm²),As' (cm²),Tipo Sección,Mcr (Tn-m),Asmin (cm²),Cumple Mcr
+Viga1,6.09,0.0,VSR,3.02,2.78,True
+Viga2,7.58,0.0,VSR,5.22,3.99,True
+Viga2,7.58,0.0,VSR,5.22,3.99,True
+Viga20,46.05,10.2,VDR,6.02,4.6,True
+Viga200,48.7,12.66,VDR,6.02,4.6,True

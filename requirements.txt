@@ -1,1 +1,2 @@
-# AXIS - Sin dependencias externas (Python 3.9+)
+# CAS - Motor de diseño estructural (Python 3.9+)
+tabulate>=0.9.0
