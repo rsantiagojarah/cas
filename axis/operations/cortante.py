@@ -1,17 +1,28 @@
-"""Operación de diseño por cortante para vigas de concreto reforzado."""
+"""Operación de diseño por cortante para vigas (E-060)."""
 
 from __future__ import annotations
 
 from axis.core.registry import register
 from axis.core.exceptions import InvalidInput
+from axis.operations.cortante_calculos import (
+    PHI_CORTANTE,
+    vc,
+    vs_max,
+    vn_max,
+    vs_requerido,
+    av_s_requerido,
+    s_max_base,
+    s_max_reducido,
+    av_s_min,
+)
 
 
 def _calcular_cortante(
     nombre: str, fc: float, fy: float, b: float, h: float, rec: float, vu_tn: float
 ) -> dict:
     """
-    Diseño por cortante. Vu en Tn (se convierte a kg).
-    Retorna dict con d, phi, Vu, Vc, V_max, Av_s, Vs, s_max, Error.
+    Diseño por cortante E-060. Vu en Tn (se convierte a kg).
+    Retorna: d, Vu, Vc, Vs_max, Vn_max, Vs, cumple_Vs_max, Av_s, s_max, Av_s_min, Error.
     """
     vu_kg = vu_tn * 1000
     if fc <= 0 or fy <= 0 or b <= 0 or h <= 0 or rec <= 0 or vu_tn < 0:
@@ -20,45 +31,63 @@ def _calcular_cortante(
         raise InvalidInput("El recubrimiento debe ser menor que la altura total")
 
     d = h - rec
-    phi = 0.85
+    vc_kg = vc(fc, b, d)
+    vs_max_kg = vs_max(fc, b, d)
+    vn_max_kg = vn_max(vc_kg, vs_max_kg)
 
-    vc = 0.53 * (fc**0.5) * b * d
-    v_max = vc + 2 * (fc**0.5) * b * d
+    umbral_sin_refuerzo = (vc_kg / 2) * PHI_CORTANTE
+    umbral_maximo = PHI_CORTANTE * vn_max_kg
 
-    if vu_kg <= (vc / 2) * phi:
-        av_s = 0.0
+    if vu_kg <= umbral_sin_refuerzo:
+        av_s_req = 0.0
+        vs_kg = 0.0
         error_msg = None
-    elif (vc / 2) * phi < vu_kg <= v_max:
-        av_s_raw = (vu_kg / phi - vc) / (fy * d)
-        av_s = max(0.0, av_s_raw)
+    elif vu_kg <= umbral_maximo:
+        vs_kg = vs_requerido(vu_kg, vc_kg)
+        vs_kg = max(0.0, vs_kg)
+        av_s_req = av_s_requerido(vs_kg, fy, d)
         error_msg = None
     else:
-        av_s = None
-        error_msg = "Vu > V_max"
+        vs_kg = vs_requerido(vu_kg, vc_kg)
+        av_s_req = None
+        error_msg = "Vu > phi*Vn_max: aumentar peralte o fc"
 
-    vs = vu_kg - phi * vc
-    s_1 = d / 2
-    s_2 = 60
-    s_max = min(s_1, s_2) / 2
+    cumple_vs_max = (vs_kg <= vs_max_kg) if av_s_req is not None else None
 
+    s_max_base_cm = s_max_base(d)
+    s_max_cm = s_max_reducido(s_max_base_cm, vs_kg, fc, b, d)
+    av_s_min_ratio = av_s_min(fc, b, fy)
+    if av_s_req is not None and av_s_req > 0:
+        av_s_req = max(av_s_req, av_s_min_ratio)
+
+    # Fuerzas en Tn; sin columnas d, Vu, Vn_max. Orden: flujo de diseño.
     return {
         "nombre": nombre,
-        "d": round(d, 2),
-        "phi": phi,
-        "Vu": round(vu_kg, 2),
-        "Vc": round(vc, 2),
-        "V_max": round(v_max, 2),
-        "Av_s": round(av_s, 4) if av_s is not None else None,
-        "Vs": round(vs, 2),
-        "s_max": round(s_max, 2),
-        "Error": error_msg,
+        "Vc": round(vc_kg / 1000, 2),
+        "phi_Vc_2": round(umbral_sin_refuerzo / 1000, 2),
+        "Vs_max": round(vs_max_kg / 1000, 2),
+        "phi_Vn_max": round(umbral_maximo / 1000, 2),
+        "Vs": round(vs_kg / 1000, 2) if av_s_req is not None else round(vs_kg / 1000, 2),
+        "cumple_Vs_max": cumple_vs_max,
+        "Av_s": round(av_s_req, 4) if av_s_req is not None else None,
+        "s_max": round(s_max_cm, 2),
+        "Av_s_min": round(av_s_min_ratio, 4),
     }
+
+
+def _to_float(val) -> float:
+    """Convierte a float, manejando strings con coma."""
+    if val is None or val == "":
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    return float(str(val).replace(",", "."))
 
 
 @register("cortante", "viga")
 def cortante_viga(data: dict) -> dict:
     """
-    Diseño por cortante. Data: {vigas: [{fc, fy, b, h, rec, Vu}, ...]}
+    Diseño por cortante E-060. Data: {vigas: [{fc, fy, b, h, rec, Vu}, ...]}.
     Vu en Tn.
     """
     if "vigas" not in data:
@@ -77,13 +106,3 @@ def cortante_viga(data: dict) -> dict:
         resultados.append(res)
 
     return {"resultados": resultados}
-
-
-def _to_float(val) -> float:
-    """Convierte a float, manejando strings con coma."""
-    if val is None or val == "":
-        return 0.0
-    if isinstance(val, (int, float)):
-        return float(val)
-    s = str(val).replace(",", ".")
-    return float(s)

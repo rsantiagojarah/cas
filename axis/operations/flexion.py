@@ -1,21 +1,31 @@
-"""Operación de diseño por flexión para vigas de concreto reforzado."""
+"""Operación de diseño por flexión para vigas (E-060, criterio cuantía máxima)."""
 
 from __future__ import annotations
 
-import math
-
 from axis.core.registry import register
 from axis.core.exceptions import InvalidInput
+from axis.operations.flexion_calculos import (
+    beta1,
+    profundidad_bloque_compresion,
+    a_max_balanceada,
+    acero_vsr,
+    acero_vdr,
+    asmin,
+    asmax_vsr,
+    asmax_vdr,
+    mcr,
+    phi_mn_vsr,
+    phi_mn_vdr,
+)
 
 
 def _calcular_flexion(
     nombre: str, fc: float, fy: float, b: float, h: float, rec: float, mu: float
 ) -> dict:
     """
-    Calcula el área de acero requerida para una viga en flexión.
-    Mu en Tn-m. Retorna dict con As, As_prima, tipo_seccion, Mcr, Asmin, cumple_Mcr.
+    Diseño por flexión según E-060 (criterio cuantía máxima). Mu en Tn-m.
+    Retorna As, As', Tipo (VSR/VDR), Mcr, Asmin, Asmax, cumple_Asmin, cumple_Asmax, OK (1.2*Mcr).
     """
-    mu_kgcm = mu * 1000 * 100
     if fc <= 0 or fy <= 0 or b <= 0 or h <= 0 or rec <= 0 or mu <= 0:
         raise InvalidInput("Todos los parámetros deben ser positivos")
     if rec >= h:
@@ -23,83 +33,68 @@ def _calcular_flexion(
 
     d = h - rec
     d_prima = rec
-    cb = (6000 * d) / (6000 + fy)
-    b1 = 0.85 if fc <= 280 else max(0.65, 0.85 - (0.05 * (fc - 280)) / 70)
-    ab = cb * b1
-    amax = 0.75 * ab
+    mu_kgcm = mu * 1000 * 100
+    b1 = beta1(fc)
+    a_max = a_max_balanceada(d, fy, fc)
 
-    discriminante = d**2 - (2 * mu_kgcm) / (0.85 * fc * b)
-    if discriminante < 0:
-        raise InvalidInput("El momento es demasiado grande para la sección dada")
-    a = d - math.sqrt(discriminante)
-
-    es = 2000000
-    if a <= amax:
-        as_req = mu_kgcm / (0.9 * fy * (d - a / 2))
-        as_prima = 0.0
-        tipo = "VSR"
-    else:
-        c = 0.85 * fc * b * amax
-        muc = 0.9 * c * (d - amax / 2)
-        mus = mu_kgcm - muc
-        cmax = amax / b1
-        fs = es * 0.003 * ((cmax - d_prima) / cmax)
-        fs = fy if fs <= 0 else fs
-        as_prima = mus / (0.9 * (fs - 0.85 * fc) * (d - d_prima))
-        as1 = muc / (0.9 * fy * (d - amax / 2))
-        as2 = mus / (0.9 * fy * (d - d_prima))
-        as_req = as1 + as2
-        tipo = "VDR"
-
-    ig = (b * h**3) / 12
-    yt = h / 2
-    fr = 2 * math.sqrt(fc)
-    mcr_kgcm = (fr * ig) / yt
-    mcr_tnm = mcr_kgcm / (1000 * 100)
-    asmin = 0.7 * (fc**0.5) * b * d / fy
-    as_final = max(as_req, asmin)
+    a = profundidad_bloque_compresion(d, mu_kgcm, fc, b)
+    tipo = "VSR" if a <= a_max else "VDR"
 
     if tipo == "VSR":
-        a_final = (as_final * fy) / (0.85 * fc * b)
-        mn = as_final * fy * (d - a_final / 2)
+        as_req, as_prima = acero_vsr(mu_kgcm, d, a, fy)
+        fs_prima = 0.0
     else:
-        tol = 1e-3
-        as_prima_iter = as_prima
-        for _ in range(100):
-            a_final = (as_req * fy - as_prima_iter * fy) / (0.85 * fc * b)
-            a_final = min(a_final, d)
-            mn = as_req * fy * (d - a_final / 2) + as_prima_iter * fy * (d - d_prima)
-            fs = es * 0.003 * ((amax / b1 - d_prima) / (amax / b1))
-            fs = fy if fs <= 0 else fs
-            denom = 0.9 * (fs - 0.85 * fc) * (d - d_prima)
-            as_prima_new = mus / denom if denom != 0 else 0
-            if abs(as_prima_new - as_prima_iter) < tol:
-                break
-            as_prima_iter = as_prima_new
-        as_prima = as_prima_iter
+        as_req, as_prima, fs_prima = acero_vdr(
+            mu_kgcm, fc, fy, b, d, d_prima, a_max, b1
+        )
 
-    phi = 0.9
-    cumple_mcr = phi * mn >= mcr_kgcm
-    if not cumple_mcr:
-        as_req_mcr = mcr_kgcm / (phi * fy * (d - h / 4))
-        as_final = max(as_final, as_req_mcr)
+    asmin_val = asmin(fc, b, d, fy)
+    as_final = max(as_req, asmin_val)
+    cumple_asmin = as_req >= asmin_val
+
+    if tipo == "VSR":
+        asmax = asmax_vsr(fc, a_max, fy, b)
+    else:
+        asmax = asmax_vdr(fc, a_max, b, fy, as_prima, fs_prima)
+    cumple_asmax = as_final <= asmax
+
+    mcr_kgcm = mcr(fc, b, h)
+    umbral_mcr = 1.2 * mcr_kgcm
+
+    if tipo == "VSR":
+        phi_mn = phi_mn_vsr(as_final, fy, fc, b, d)
+    else:
+        phi_mn = phi_mn_vdr(as_final, as_prima, fc, fy, b, d, d_prima, b1)
+    cumple_mcr = phi_mn >= umbral_mcr
 
     return {
         "nombre": nombre,
         "As": round(as_final, 2),
         "As'": round(as_prima, 2),
         "Tipo": tipo,
-        "Mcr": round(mcr_tnm, 2),
-        "Asmin": round(asmin, 2),
+        "Mcr": round(mcr_kgcm / (1000 * 100), 2),
+        "Asmin": round(asmin_val, 2),
+        "Asmax": round(asmax, 2),
+        "cumple_Asmin": cumple_asmin,
+        "cumple_Asmax": cumple_asmax,
         "OK": cumple_mcr,
     }
+
+
+def _to_float(val) -> float:
+    """Convierte a float, manejando strings con coma."""
+    if val is None:
+        raise InvalidInput("Parámetro faltante")
+    if isinstance(val, (int, float)):
+        return float(val)
+    return float(str(val).replace(",", "."))
 
 
 @register("flexion", "viga")
 def flexion_viga(data: dict) -> dict:
     """
-    Diseño por flexión de viga de concreto reforzado.
-    Data: {fc, fy, b, h, rec, Mu} o {vigas: [{fc, fy, b, h, rec, Mu}, ...]}
+    Diseño por flexión de viga (E-060, criterio cuantía máxima).
+    Data: {fc, fy, b, h, rec, Mu} o {vigas: [{...}, ...]}.
     """
     if "vigas" in data:
         filas = data["vigas"]
@@ -123,13 +118,3 @@ def flexion_viga(data: dict) -> dict:
         resultados.append(res)
 
     return {"resultados": resultados}
-
-
-def _to_float(val) -> float:
-    """Convierte a float, manejando strings con coma."""
-    if val is None:
-        raise InvalidInput("Parámetro faltante")
-    if isinstance(val, (int, float)):
-        return float(val)
-    s = str(val).replace(",", ".")
-    return float(s)

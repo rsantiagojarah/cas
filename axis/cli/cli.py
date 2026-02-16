@@ -271,17 +271,19 @@ _VIGAS_HEADER_MAP = {
     "Mu": "Mu\n(Tn-m)",
 }
 
-# Headers para tabla de cortante
+# Cortante: flujo de diseño; fuerzas en Tn (sin d, Vu, Vn_max)
 _CORTANTE_HEADER_MAP = {
     "N": "Nº",
     "nombre": "Nombre",
-    "d": "d\n(cm)",
-    "Vu": "Vu\n(kg)",
-    "Vc": "Vc\n(kg)",
-    "V_max": "V_max\n(kg)",
+    "Vc": "Vc\n(Tn)",
+    "phi_Vc_2": "φ·Vc/2\n(Tn)",
+    "Vs_max": "Vs_max\n(Tn)",
+    "phi_Vn_max": "φ·Vn_max\n(Tn)",
+    "Vs": "Vs\n(Tn)",
+    "cumple_Vs_max": "cumple\nVs_max",
     "Av_s": "Av/s\n(cm²/cm)",
     "s_max": "s_max\n(cm)",
-    "Error": "Error",
+    "Av_s_min": "Av/s_min\n(cm²/cm)",
 }
 
 # Título en línea 1, unidad en línea 2 (como imagen) para no anchar columnas
@@ -298,8 +300,11 @@ _FLEXION_HEADER_MAP = {
     "Mcr": "Mcr\n(Tn-m)",
     "Asmin (cm²)": "Asmin\n(cm²)",
     "Asmin": "Asmin\n(cm²)",
-    "Cumple Mcr": "OK",
-    "OK": "OK",
+    "Asmax": "Asmax\n(cm²)",
+    "cumple_Asmin": "cumple\nAsmin",
+    "cumple_Asmax": "cumple\nAsmax",
+    "Cumple Mcr": "1.2 Mcr",
+    "OK": "1.2\nMcr",
 }
 
 
@@ -319,7 +324,15 @@ def _format_table(
     headers = [
         m.get(c, vigas_map.get(c, flex_map.get(c, cort_map.get(c, c)))) for c in cols
     ]
-    table_rows = [[str(row.get(c, "")) for c in cols] for row in rows]
+    def _cell_str(val):
+        if val is None or (isinstance(val, str) and val.lower() == "none"):
+            return "-"
+        if val is True or (isinstance(val, str) and val.lower() == "true"):
+            return "Si"
+        if val is False or (isinstance(val, str) and val.lower() == "false"):
+            return "No"
+        return str(val)
+    table_rows = [[_cell_str(row.get(c, "")) for c in cols] for row in rows]
     n = len(headers)
     return tabulate(
         table_rows,
