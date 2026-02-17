@@ -125,7 +125,7 @@ DISEÑO DE VIGAS POR FLEXION (METODO E-060 - CRITERIO DE DEFORMACION MAXIMA = 0.
    
    Asmin = 0.7 * (fc^0.5) * b * d / fy
 
-   Asmin = 1.4 / fy * b * d
+   Asmin = 14 / fy * b * d
 
    Asmin = Acero minimo en cm2 (cm2)
    fc = resistencia a la compresion del concreto en kg/cm2 (kg/cm2)

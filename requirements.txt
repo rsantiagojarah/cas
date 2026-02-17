@@ -1,2 +1,3 @@
 # CAS - Motor de diseño estructural (Python 3.9+)
 tabulate>=0.9.0
+prompt_toolkit>=3.0.0

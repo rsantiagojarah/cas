@@ -163,7 +163,7 @@ DISEÑO DE VIGAS POR FLEXION (METODO E-060 - CRITERIO DE CUANTIA MAXIMA - unidad
    b = ancho de la viga en cm (cm)
    d = peralte efectivo (cm)
 
-   Asmin2 = 1.4 / fy * b * d
+   Asmin2 = 14 / fy * b * d
 
    Asmin = Acero minimo en cm2 (cm2)
    fy = resistencia a la fluencia del acero en kg/cm2 (kg/cm2)

@@ -13,9 +13,6 @@ from axis.operations.flexion_calculos import (
     asmin,
     asmax_vsr,
     asmax_vdr,
-    mcr,
-    phi_mn_vsr,
-    phi_mn_vdr,
 )
 
 
@@ -23,8 +20,8 @@ def _calcular_flexion(
     nombre: str, fc: float, fy: float, b: float, h: float, rec: float, mu: float
 ) -> dict:
     """
-    Diseño por flexión según E-060 (criterio cuantía máxima). Mu en Tn-m.
-    Retorna As, As', Tipo (VSR/VDR), Mcr, Asmin, Asmax, cumple_Asmin, cumple_Asmax, OK (1.2*Mcr).
+    Diseño por flexión E-060 (criterio cuantía máxima). Mu en Tn-m.
+    Retorna: nombre, Tipo, As, As', Asmin, Asmax, As_colocar, As_prima_colocar, Estado.
     """
     if fc <= 0 or fy <= 0 or b <= 0 or h <= 0 or rec <= 0 or mu <= 0:
         raise InvalidInput("Todos los parámetros deben ser positivos")
@@ -49,35 +46,23 @@ def _calcular_flexion(
         )
 
     asmin_val = asmin(fc, b, d, fy)
-    as_final = max(as_req, asmin_val)
-    cumple_asmin = as_req >= asmin_val
-
     if tipo == "VSR":
         asmax = asmax_vsr(fc, a_max, fy, b)
     else:
         asmax = asmax_vdr(fc, a_max, b, fy, as_prima, fs_prima)
-    cumple_asmax = as_final <= asmax
 
-    mcr_kgcm = mcr(fc, b, h)
-    umbral_mcr = 1.2 * mcr_kgcm
-
-    if tipo == "VSR":
-        phi_mn = phi_mn_vsr(as_final, fy, fc, b, d)
-    else:
-        phi_mn = phi_mn_vdr(as_final, as_prima, fc, fy, b, d, d_prima, b1)
-    cumple_mcr = phi_mn >= umbral_mcr
+    as_colocar = max(as_req, asmin_val)
+    as_prima_colocar = as_prima
 
     return {
         "nombre": nombre,
-        "As": round(as_final, 2),
+        "Mu": round(mu, 2),
+        "As": round(as_req, 2),
         "As'": round(as_prima, 2),
-        "Tipo": tipo,
-        "Mcr": round(mcr_kgcm / (1000 * 100), 2),
         "Asmin": round(asmin_val, 2),
         "Asmax": round(asmax, 2),
-        "cumple_Asmin": cumple_asmin,
-        "cumple_Asmax": cumple_asmax,
-        "OK": cumple_mcr,
+        "As_colocar": round(as_colocar, 2),
+        "As_prima_colocar": round(as_prima_colocar, 2),
     }
 
 

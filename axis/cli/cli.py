@@ -1,9 +1,20 @@
-"""CLI minimalista: cas <scope> <operation>."""
+"""CLI minimalista: cas <scope> <operation>. Flujo estilo Cursor CLI."""
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+
+# Comandos que cierran el REPL
+_REPL_EXIT = frozenset({"exit", "quit", "q"})
+
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.layout.controls import UIContent
+from prompt_toolkit.layout.menus import CompletionsMenuControl
+from prompt_toolkit.shortcuts import CompleteStyle
+from prompt_toolkit.styles import Style
 
 from axis.core.project import create_project, set_active_project, get_active_project, list_projects
 from axis.core.tree import get_project_tree, format_tree
@@ -67,6 +78,91 @@ def _handle_list_projects() -> str:
     if not projects:
         return "No hay proyectos. Use 'cas new <project>' para crear uno."
     return "Proyectos:\n  " + "\n  ".join(projects)
+
+
+def _handle_sessions_ls() -> str:
+    """cas sessions ls - listar proyectos/sesiones (estilo Cursor)"""
+    return _handle_list_projects()
+
+
+def _handle_resume(args: list[str]) -> str:
+    """cas resume [project] - reanudar sesión (estilo Cursor)"""
+    if len(args) >= 1:
+        return _handle_use(args)
+    active = get_active_project(_get_base_path())
+    if not active:
+        raise NoActiveProject(
+            "No hay sesión para reanudar. Use 'cas use <proyecto>' o 'cas new <proyecto>'."
+        )
+    return f"Sesión activa: {active}\nRuta: {get_active_project_path(_get_base_path())}"
+
+
+def _get_help_text(topic: str | None = None) -> str:
+    """Texto de ayuda general o por comando."""
+    help_map = {
+        "new": "cas new <project>\n  Crear y activar un nuevo proyecto.",
+        "use": "cas use <project>\n  Activar un proyecto existente.",
+        "sessions": "cas sessions ls\n  Listar todos los proyectos (sesiones disponibles).",
+        "resume": "cas resume [project]\n  Reanudar sesión. Sin args: muestra la actual. Con proyecto: la activa.",
+        "tree": "cas tree\n  Mostrar estructura del proyecto actual.",
+        "info": "cas info\n  Información del proyecto activo.",
+        "add": "cas add viga <nombre> <fc> <fy> <b> <h> <rec> <Mu> [Vu]\n  Añadir una viga al proyecto activo.",
+        "list": "cas list vigas\n  Ver todas las vigas (datos de entrada).",
+        "edit": (
+            "cas edit viga <i> <param> <valor>  - Editar un parámetro\n"
+            "cas edit viga <i> <nombre> <fc> <fy> <b> <h> <rec> <Mu> [Vu]  - Editar toda la viga\n"
+            "cas edit columna <param> <valor> [i1 i2 ...]  - Editar columna en varias vigas"
+        ),
+        "delete": "cas delete viga <i> [i2 i3 ...]\n  Eliminar viga(s) por índice.",
+        "flexion": "cas flexion viga\n  Diseño por flexión de vigas (usa elements/data.csv).",
+        "results": "cas results flexion | cas results cortante\n  Ver resultados en tabla.",
+        "cortante": "cas cortante viga\n  Diseño por cortante de vigas.",
+        "clear": "clear | cls\n  Limpiar la pantalla del REPL (solo en modo interactivo).",
+    }
+    if topic:
+        t = topic.lower()
+        if t in help_map:
+            return help_map[t]
+        return f"Comando desconocido: {topic}\n\nComandos: {', '.join(help_map)}"
+    # Ayuda general
+    lines = [
+        "CAS - Motor de diseño estructural",
+        "",
+        "Uso: cas <comando> [args]",
+        "     cas                    Entrar en modo interactivo (REPL)",
+        "",
+        "Proyectos y sesiones:",
+        "  new <project>             Crear y activar proyecto",
+        "  use <project>             Activar proyecto",
+        "  sessions ls               Listar proyectos (sesiones)",
+        "  resume [project]          Reanudar sesión actual o activar otra",
+        "  tree                      Estructura del proyecto",
+        "  info                      Proyecto activo",
+        "",
+        "Vigas:",
+        "  add viga <nombre> <fc> <fy> <b> <h> <rec> <Mu> [Vu]",
+        "  list vigas                Ver vigas",
+        "  edit viga <i> <param> <valor>",
+        "  edit columna <param> <valor> [i1 i2 ...]",
+        "  delete viga <i> [i2 i3 ...]",
+        "",
+        "Cálculos:",
+        "  flexion viga              Diseño por flexión",
+        "  cortante viga             Diseño por cortante",
+        "  results flexion           Ver resultados flexión",
+        "  results cortante          Ver resultados cortante",
+        "",
+        "REPL: clear, cls            Limpiar pantalla",
+        "",
+        "Ayuda: cas help [comando]",
+    ]
+    return "\n".join(lines)
+
+
+def _handle_help(args: list[str]) -> str:
+    """cas help [command]"""
+    topic = args[0] if args else None
+    return _get_help_text(topic)
 
 
 def _handle_add_viga(args: list[str]) -> str:
@@ -286,25 +382,17 @@ _CORTANTE_HEADER_MAP = {
     "Av_s_min": "Av/s_min\n(cm²/cm)",
 }
 
-# Título en línea 1, unidad en línea 2 (como imagen) para no anchar columnas
+# Flexión: títulos mínimos con unidades
 _FLEXION_HEADER_MAP = {
     "N": "Nº",
     "nombre": "Nombre",
-    "As (cm²)": "As\n(cm²)",
-    "As' (cm²)": "As'\n(cm²)",
+    "Mu": "Mu\n(Tn-m)",
     "As": "As\n(cm²)",
     "As'": "As'\n(cm²)",
-    "Tipo Sección": "Tipo",
-    "Tipo": "Tipo",
-    "Mcr (Tn-m)": "Mcr\n(Tn-m)",
-    "Mcr": "Mcr\n(Tn-m)",
-    "Asmin (cm²)": "Asmin\n(cm²)",
     "Asmin": "Asmin\n(cm²)",
     "Asmax": "Asmax\n(cm²)",
-    "cumple_Asmin": "cumple\nAsmin",
-    "cumple_Asmax": "cumple\nAsmax",
-    "Cumple Mcr": "1.2 Mcr",
-    "OK": "1.2\nMcr",
+    "As_colocar": "As col.\n(cm²)",
+    "As_prima_colocar": "As' col.\n(cm²)",
 }
 
 
@@ -414,6 +502,176 @@ def _handle_results_cortante() -> str:
     return "Cortante\n\n" + _format_table(rows, columns=cols, header_map=_CORTANTE_HEADER_MAP)
 
 
+def _get_prompt() -> str:
+    """Genera el prompt del REPL (estilo Cursor: →)."""
+    try:
+        arrow = "→" if sys.stdout.encoding and "utf" in sys.stdout.encoding.lower() else ">"
+    except Exception:
+        arrow = ">"
+    active = get_active_project(_get_base_path())
+    if active:
+        return f"{arrow} CAS ({active}) "
+    return f"{arrow} "
+
+
+# Comandos /: (texto, display Cursor-style, descripción)
+# Formato display: /comando [params] como en la imagen Cursor
+_SLASH_COMMANDS = [
+    ("help", "/help", "Ayuda general o por comando"),
+    ("new ", "/new <project>", "Crear y activar proyecto"),
+    ("use ", "/use <project>", "Activar proyecto"),
+    ("sessions ls", "/sessions ls", "Listar proyectos (sesiones)"),
+    ("resume ", "/resume [project]", "Reanudar sesión o activar otra"),
+    ("tree", "/tree", "Estructura del proyecto"),
+    ("info", "/info", "Proyecto activo"),
+    ("add viga ", "/add viga <...>", "Añadir viga: nombre fc fy b h rec Mu [Vu]"),
+    ("list vigas", "/list vigas", "Ver vigas del proyecto"),
+    ("edit viga ", "/edit viga <i> <param> <valor>", "Editar viga por índice"),
+    ("edit columna ", "/edit columna <param> <valor> [i1 i2 ...]", "Editar columna"),
+    ("delete viga ", "/delete viga <i> [i2 i3 ...]", "Eliminar viga(s)"),
+    ("flexion viga", "/flexion viga", "Diseño por flexión"),
+    ("cortante viga", "/cortante viga", "Diseño por cortante"),
+    ("results flexion", "/results flexion", "Ver resultados flexión"),
+    ("results cortante", "/results cortante", "Ver resultados cortante"),
+    ("clear", "/clear", "Limpiar pantalla del REPL"),
+    ("exit", "/exit", "Salir del REPL"),
+]
+
+# Tema transparente: menú con fondo del terminal (bg:default), sin recuadro.
+_CURSOR_STYLE = Style.from_dict({
+    "": "#cccccc",
+    "completion-menu": "#cccccc bg:default",
+    "completion-menu.completion": "#cccccc bg:default",
+    "completion-menu.completion.current": "#ffffff bold noreverse bg:default",
+    "completion-menu.meta.completion": "#888888 bg:default",
+    "completion-menu.meta.completion.current": "#ffffff bold noreverse bg:default",
+    "scrollbar.background": "bg:default",
+    "scrollbar.button": "bg:default",
+})
+
+
+def _menu_bullet() -> str:
+    """Viñeta para cada comando (estilo Cursor: flecha pequeña al costado)."""
+    try:
+        enc = (sys.stdout.encoding or "").lower()
+        return "→ " if "utf" in enc else "> "
+    except Exception:
+        return "> "
+
+
+class _SlashCompleter(Completer):
+    """Completer para /: menú vertical estilo Cursor (descripción al costado, viñeta)."""
+
+    def get_completions(self, document, complete_event):
+        text = document.text.strip()
+        if not text.startswith("/") and not text.startswith("／"):
+            return
+        frag = text[1:].strip()
+        for insert_text, display_text, desc in _SLASH_COMMANDS:
+            if frag and not insert_text.strip().lower().startswith(frag.lower()):
+                continue
+            # Display con viñeta: "→ /help" (estilo Cursor)
+            display_with_bullet = f"{_menu_bullet()}{display_text}"
+            yield Completion(
+                insert_text,
+                start_position=-len(text),
+                display=display_with_bullet,
+                display_meta=desc,
+                selected_style="#ffffff bold",
+            )
+
+
+def _clear_repl_screen() -> None:
+    """Limpia la pantalla del REPL (cross-platform)."""
+    if sys.platform == "win32":
+        os.system("cls")
+    else:
+        os.system("clear")
+
+
+def _get_slash_commands_text() -> str:
+    """Lista formateada de comandos / (estilo Cursor CLI)."""
+    lines = ["\nComandos disponibles:\n"]
+    for _, display_text, desc in _SLASH_COMMANDS:
+        lines.append(f"  {display_text:<35} {desc}")
+    return "\n".join(lines) + "\n"
+
+
+def _run_repl() -> None:
+    """Modo interactivo REPL con menú / y flechas (estilo Cursor CLI)."""
+    # Ocultar cursor en el menú de completado para que no aparezca el recuadro blanco
+    # sobre el comando seleccionado; solo se resaltan las letras.
+    _original_create_content = CompletionsMenuControl.create_content
+
+    def _create_content_no_cursor(self, width: int, height: int) -> UIContent:
+        content = _original_create_content(self, width, height)
+        if content.line_count:
+            return UIContent(
+                get_line=content.get_line,
+                line_count=content.line_count,
+                cursor_position=content.cursor_position,
+                menu_position=content.menu_position,
+                show_cursor=False,
+            )
+        return content
+
+    CompletionsMenuControl.create_content = _create_content_no_cursor
+    try:
+        _run_repl_loop()
+    finally:
+        CompletionsMenuControl.create_content = _original_create_content
+
+
+def _run_repl_loop() -> None:
+    """Bucle principal del REPL (llamado desde _run_repl)."""
+    print("CAS - Motor de diseño estructural")
+    print("Modo interactivo. Escriba / para ver comandos (navegue con flechas), 'exit' para salir.\n")
+    session = PromptSession(
+        completer=_SlashCompleter(),
+        complete_while_typing=True,
+        complete_style=CompleteStyle.COLUMN,
+        enable_history_search=False,
+        reserve_space_for_menu=0,
+        show_frame=False,
+        style=_CURSOR_STYLE,
+        bottom_toolbar=None,
+    )
+    while True:
+        try:
+            line = session.prompt(_get_prompt()).strip()
+        except EOFError:
+            print()
+            break
+        if not line:
+            continue
+        # / solo sin selección → no ejecutar
+        if line.strip() in ("/", "／"):
+            continue
+        # /comando → ejecutar (quitar /)
+        if line.startswith("/") or line.startswith("／"):
+            line = line[1:].strip()
+            if not line:
+                continue
+        tokens = line.split()
+        cmd = tokens[0].lower()
+        if cmd in _REPL_EXIT:
+            break
+        if cmd in ("clear", "cls"):
+            _clear_repl_screen()
+            continue
+        argv = ["cas"] + tokens
+        try:
+            output = parse_and_execute(argv)
+            print(output)
+        except (
+            ProjectNotFound,
+            NoActiveProject,
+            OperationNotRegistered,
+            InvalidInput,
+        ) as e:
+            print(f"Error: {e}", file=sys.stderr)
+
+
 def parse_and_execute(argv: list[str]) -> str:
     """Parsea argumentos y ejecuta el comando correspondiente."""
     args = argv[1:] if len(argv) > 1 else []
@@ -453,6 +711,12 @@ def parse_and_execute(argv: list[str]) -> str:
         return _handle_info()
     if scope == "list-projects":
         return _handle_list_projects()
+    if scope == "help":
+        return _handle_help(args[1:])
+    if scope == "sessions" and len(args) > 1 and args[1].lower() == "ls":
+        return _handle_sessions_ls()
+    if scope == "resume":
+        return _handle_resume(args[1:])
     if scope == "add" and len(args) > 1 and args[1].lower() == "viga":
         return _handle_add_viga(args[2:])
     if scope == "list" and len(args) > 1 and args[1].lower() == "vigas":
@@ -482,6 +746,16 @@ def parse_and_execute(argv: list[str]) -> str:
 def main() -> int:
     """Punto de entrada del CLI."""
     try:
+        if len(sys.argv) == 1:
+            _run_repl()
+            return 0
+        if len(sys.argv) == 2 and sys.argv[1].lower() in ("-h", "--help"):
+            print(_get_help_text())
+            return 0
+        # cas / → mostrar comandos slash (funciona fuera del REPL)
+        if len(sys.argv) == 2 and sys.argv[1].strip() in ("/", "／"):
+            print(_get_slash_commands_text(), flush=True)
+            return 0
         output = parse_and_execute(sys.argv)
         print(output)
         return 0

@@ -22,7 +22,7 @@ def is_direct_calculation_mode(args: list[str]) -> bool:
     scope = args[0].lower()
     reserved = (
         "new", "use", "tree", "info", "list-projects", "add", "list", "edit",
-        "delete", "flexion", "cortante", "results"
+        "delete", "flexion", "cortante", "results", "sessions", "resume", "help"
     )
     return scope not in reserved
 
