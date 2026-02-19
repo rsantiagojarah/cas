@@ -32,6 +32,7 @@ from axis.cli.handlers import (
     handle_cortante_viga,
     handle_results_cortante,
 )
+from axis.cli.sismo_handlers import handle_sismo
 from axis.cli.repl import run_repl, get_slash_commands_text
 from axis.cli.help_text import get_help_text
 
@@ -76,6 +77,8 @@ def parse_and_execute(argv: list[str]) -> str:
         return handle_cortante_viga()
     if scope == "results" and len(args) > 1 and args[1].lower() == "cortante":
         return handle_results_cortante()
+    if scope == "sismo":
+        return handle_sismo(args[1:])
     if is_direct_calculation_mode(args):
         operation = args[1] if len(args) > 1 else ""
         return str(run(scope, operation, {}))

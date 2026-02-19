@@ -7,6 +7,10 @@ axis.egg-info/entry_points.txt
 axis.egg-info/requires.txt
 axis.egg-info/top_level.txt
 axis/cli/cli.py
+axis/cli/handlers.py
+axis/cli/help_text.py
+axis/cli/repl.py
+axis/cli/tables.py
 axis/core/__init__.py
 axis/core/context.py
 axis/core/database.py
@@ -14,8 +18,14 @@ axis/core/exceptions.py
 axis/core/project.py
 axis/core/registry.py
 axis/core/tree.py
+axis/data/__init__.py
+axis/data/etabs_connection.py
+axis/data/etabs_table_reader.py
 axis/engine/__init__.py
 axis/engine/engine.py
 axis/operations/__init__.py
+axis/operations/cortante.py
+axis/operations/cortante_calculos.py
 axis/operations/flexion.py
+axis/operations/flexion_calculos.py
 axis/operations/placeholder.py

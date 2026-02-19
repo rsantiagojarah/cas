@@ -20,6 +20,13 @@ HELP_MAP = {
     "flexion": "cas flexion viga\n  Diseño por flexión de vigas (usa elements/data.csv).",
     "results": "cas results flexion | cas results cortante\n  Ver resultados en tabla.",
     "cortante": "cas cortante viga\n  Diseño por cortante de vigas.",
+    "sismo": (
+        "cas sismo etapa1 <zona> <perfil>  - Peligro sísmico (C vs T)\n"
+        "cas sismo etapa2 <categoria> <sistema> <Ia> <Ip>  - Coeficiente R\n"
+        "cas sismo etapa3  - Análisis ETABS (periodo, masa, peso, cortantes)\n"
+        "cas sismo etapa4 <r0> <material> [Vx Vy] [h [Δa Δb]]  - Validación (sistema, drift, separación)\n"
+        "cas sismo separacion <h> [Δa Δb]  - Paso 14: separación de edificios (s = 0.006·h ≥ 0.03)"
+    ),
     "clear": "clear | cls\n  Limpiar la pantalla del REPL (solo en modo interactivo).",
 }
 
@@ -49,6 +56,13 @@ HELP_LINES = [
     "  cortante viga             Diseño por cortante",
     "  results flexion           Ver resultados flexión",
     "  results cortante          Ver resultados cortante",
+    "",
+    "Sismo E.030:",
+    "  sismo etapa1 <zona> <perfil>",
+    "  sismo etapa2 <categoria> <sistema> <Ia> <Ip>",
+    "  sismo etapa3              (ETABS)",
+    "  sismo etapa4 <r0> <material> [Vx Vy] [h [Δa Δb]]",
+    "  sismo separacion <h> [Δa Δb]",
     "",
     "REPL: clear, cls            Limpiar pantalla",
     "",
