@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
-from axis.sismico.tables_e030 import PARAMETROS_SUELO, obtener_parametros_sitio
+from axis.sismico.tables_e030 import obtener_parametros_sitio
 
 
 def factor_amplificacion_c(t: float, tp: float, tl: float) -> float:
@@ -26,12 +26,12 @@ def factor_amplificacion_c(t: float, tp: float, tl: float) -> float:
     return 2.5 * (tp * tl / (t * t))
 
 
-def parametros_sitio(perfil_suelo: str) -> dict:
+def parametros_sitio(perfil_suelo: str, zona: int) -> dict:
     """
-    Obtiene S, Tp y Tl según perfil (s0, s1, s2, s3, s4).
+    Obtiene S, Tp y Tl según E.030: S de Tabla N° 3 (zona + perfil), Tp y Tl de Tabla N° 4 (perfil).
     Para S4 retorna dict con valores None (estudio específico).
     """
-    return obtener_parametros_sitio(perfil_suelo)
+    return obtener_parametros_sitio(perfil_suelo, zona)
 
 
 def tabla_c_vs_t(

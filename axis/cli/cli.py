@@ -1,17 +1,15 @@
-"""CLI minimalista: cas <scope> <operation>. Flujo estilo Cursor CLI. Reglas: ≤200 líneas, ≤150 chars."""
+"""CLI minimalista: cas <scope> <operation>. Router declarativo. Reglas: ≤200 líneas, ≤150 chars."""
 
 from __future__ import annotations
 
 import sys
 
-from axis.core.context import is_direct_calculation_mode
 from axis.core.exceptions import (
     ProjectNotFound,
     NoActiveProject,
     OperationNotRegistered,
     InvalidInput,
 )
-from axis.engine.engine import run
 
 from axis.cli.handlers import (
     handle_new,
@@ -22,67 +20,63 @@ from axis.cli.handlers import (
     handle_list_projects,
     handle_sessions_ls,
     handle_resume,
+)
+from axis.cli.handlers_vigas import (
     handle_add_viga,
     handle_edit_viga,
     handle_edit_columna,
     handle_delete_viga,
-    handle_flexion_viga,
     handle_list_vigas,
+)
+from axis.cli.handlers_diseno import (
+    handle_flexion_viga,
     handle_results_flexion,
     handle_cortante_viga,
     handle_results_cortante,
 )
 from axis.cli.sismo_handlers import handle_sismo
+from axis.cli.handlers_irregular import handle_irregular
+from axis.cli.handlers_muros import (
+    handle_muro_nucleo,
+    handle_muro_list,
+    handle_muro_delete,
+    handle_muro_etabs,
+)
+from axis.cli.router import dispatch
 from axis.cli.repl import run_repl, get_slash_commands_text
 from axis.cli.help_text import get_help_text
 
+HANDLERS = {
+    "new": handle_new,
+    "use": handle_use,
+    "tree": handle_tree,
+    "info": handle_info,
+    "list-projects": handle_list_projects,
+    "help": handle_help,
+    ("sessions", "ls"): handle_sessions_ls,
+    "resume": handle_resume,
+    ("add", "viga"): handle_add_viga,
+    ("list", "vigas"): handle_list_vigas,
+    ("edit", "viga"): handle_edit_viga,
+    ("edit", "columna"): handle_edit_columna,
+    ("delete", "viga"): handle_delete_viga,
+    ("flexion", "viga"): handle_flexion_viga,
+    ("results", "flexion"): handle_results_flexion,
+    ("cortante", "viga"): handle_cortante_viga,
+    ("results", "cortante"): handle_results_cortante,
+    "sismo": handle_sismo,
+    "irregular": handle_irregular,
+    ("muro", "nucleo"): handle_muro_nucleo,
+    ("muro", "list"): handle_muro_list,
+    ("muro", "delete"): handle_muro_delete,
+    ("muro", "etabs"): handle_muro_etabs,
+}
+
 
 def parse_and_execute(argv: list[str]) -> str:
-    """Parsea argumentos y ejecuta el comando correspondiente."""
+    """Parsea argumentos y ejecuta el comando vía router declarativo."""
     args = argv[1:] if len(argv) > 1 else []
-    if not args:
-        return get_help_text()
-    scope = args[0].lower()
-    if scope == "new":
-        return handle_new(args[1:])
-    if scope == "use":
-        return handle_use(args[1:])
-    if scope == "tree":
-        return handle_tree()
-    if scope == "info":
-        return handle_info()
-    if scope == "list-projects":
-        return handle_list_projects()
-    if scope == "help":
-        return handle_help(args[1:])
-    if scope == "sessions" and len(args) > 1 and args[1].lower() == "ls":
-        return handle_sessions_ls()
-    if scope == "resume":
-        return handle_resume(args[1:])
-    if scope == "add" and len(args) > 1 and args[1].lower() == "viga":
-        return handle_add_viga(args[2:])
-    if scope == "list" and len(args) > 1 and args[1].lower() == "vigas":
-        return handle_list_vigas()
-    if scope == "edit" and len(args) > 1 and args[1].lower() == "viga":
-        return handle_edit_viga(args[2:])
-    if scope == "edit" and len(args) > 1 and args[1].lower() == "columna":
-        return handle_edit_columna(args[2:])
-    if scope == "delete" and len(args) > 1 and args[1].lower() == "viga":
-        return handle_delete_viga(args[2:])
-    if scope == "flexion" and len(args) > 1 and args[1].lower() == "viga":
-        return handle_flexion_viga()
-    if scope == "results" and len(args) > 1 and args[1].lower() == "flexion":
-        return handle_results_flexion()
-    if scope == "cortante" and len(args) > 1 and args[1].lower() == "viga":
-        return handle_cortante_viga()
-    if scope == "results" and len(args) > 1 and args[1].lower() == "cortante":
-        return handle_results_cortante()
-    if scope == "sismo":
-        return handle_sismo(args[1:])
-    if is_direct_calculation_mode(args):
-        operation = args[1] if len(args) > 1 else ""
-        return str(run(scope, operation, {}))
-    raise InvalidInput(f"Comando desconocido: {scope}")
+    return dispatch(args, HANDLERS)
 
 
 def main() -> int:

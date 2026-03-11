@@ -2,7 +2,8 @@
 
 from axis.sismico.tables_e030 import (
     FACTOR_ZONA,
-    PARAMETROS_SUELO,
+    FACTOR_SUELO_S,
+    PERIODOS_TP_TL,
     FACTOR_USO,
     FACTOR_R0,
     DISTORSION_MAXIMA,
@@ -30,7 +31,8 @@ from axis.sismico.etapa4_validacion import (
 
 __all__ = [
     "FACTOR_ZONA",
-    "PARAMETROS_SUELO",
+    "FACTOR_SUELO_S",
+    "PERIODOS_TP_TL",
     "FACTOR_USO",
     "FACTOR_R0",
     "DISTORSION_MAXIMA",

@@ -1,4 +1,4 @@
-"""Gestión de archivos CSV (data) del proyecto."""
+"""Gestión de archivos CSV por tipo de elemento (vigas, columnas)."""
 
 from __future__ import annotations
 
@@ -7,9 +7,14 @@ from pathlib import Path
 
 from axis.core.exceptions import ProjectNotFound
 
+ELEMENT_FIELDNAMES: dict[str, list[str]] = {
+    "vigas": ["nombre", "fc", "fy", "b", "h", "rec", "Mu", "Vu"],
+    "columnas": ["nombre", "fc", "fy", "b", "h", "rec", "Pu", "Mux", "Muy"],
+    "muros_nucleo": ["nivel", "hm", "Mu"],
+}
+
 
 def _get_project_path(project_name: str, base_path: Path) -> Path:
-    """Obtiene la ruta del proyecto."""
     path = base_path / project_name
     if not path.exists():
         raise ProjectNotFound(f"Proyecto '{project_name}' no encontrado.")
@@ -17,59 +22,76 @@ def _get_project_path(project_name: str, base_path: Path) -> Path:
 
 
 def _get_elements_path(project_path: Path) -> Path:
-    """Obtiene la ruta de la carpeta elements."""
     return project_path / "elements"
 
 
-def _get_data_csv_path(project_path: Path) -> Path:
-    """Obtiene la ruta del archivo data.csv."""
-    return _get_elements_path(project_path) / "data.csv"
+def _get_data_csv_path(project_path: Path, element_type: str = "vigas") -> Path:
+    """Ruta del CSV del tipo de elemento: elements/vigas.csv o elements/columnas.csv."""
+    return _get_elements_path(project_path) / f"{element_type}.csv"
 
 
-def ensure_data_csv_exists(project_path: Path) -> Path:
-    """Crea data.csv si no existe. Retorna la ruta del archivo."""
+def ensure_data_csv_exists(
+    project_path: Path,
+    element_type: str = "vigas",
+    fieldnames: list[str] | None = None,
+) -> Path:
+    """Crea el CSV del tipo si no existe; escribe cabecera si está vacío."""
     elements_dir = _get_elements_path(project_path)
     elements_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = _get_data_csv_path(project_path)
+    csv_path = _get_data_csv_path(project_path, element_type)
     if not csv_path.exists():
         csv_path.touch()
+    if fieldnames is None:
+        fieldnames = ELEMENT_FIELDNAMES.get(element_type, ELEMENT_FIELDNAMES["vigas"])
+    if csv_path.stat().st_size == 0:
+        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
     return csv_path
 
 
-def read_csv(project_path: Path) -> list[dict]:
-    """Lee el archivo data.csv del proyecto."""
-    csv_path = _get_data_csv_path(project_path)
-    ensure_data_csv_exists(project_path)
+def read_csv(
+    project_path: Path,
+    element_type: str = "vigas",
+) -> list[dict]:
+    """Lee el CSV del tipo. Si element_type es vigas y no existe vigas.csv, intenta data.csv (migración)."""
+    csv_path = _get_data_csv_path(project_path, element_type)
+    fallback = _get_elements_path(project_path) / "data.csv" if element_type == "vigas" else None
+    path_to_use = csv_path if csv_path.exists() else (fallback if fallback and fallback.exists() else None)
+    if path_to_use is None:
+        ensure_data_csv_exists(project_path, element_type)
+        return []
     rows: list[dict] = []
-    if csv_path.stat().st_size == 0:
+    if path_to_use.stat().st_size == 0:
         return rows
-    with open(csv_path, newline="", encoding="utf-8") as f:
+    with open(path_to_use, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
     return rows
 
 
-def write_csv(project_path: Path, rows: list[dict], fieldnames: list[str] | None = None) -> None:
-    """Guarda datos en data.csv del proyecto."""
-    csv_path = ensure_data_csv_exists(project_path)
-    if rows and not fieldnames:
-        fieldnames = list(rows[0].keys())
-    elif not fieldnames:
-        fieldnames = []
+def write_csv(
+    project_path: Path,
+    rows: list[dict],
+    element_type: str = "vigas",
+    fieldnames: list[str] | None = None,
+) -> None:
+    """Guarda en elements/<element_type>.csv."""
+    if fieldnames is None:
+        fieldnames = ELEMENT_FIELDNAMES.get(element_type, (rows[0].keys() if rows else []))
+    csv_path = ensure_data_csv_exists(project_path, element_type, fieldnames)
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
 
-def get_data_csv_path(project_path: Path) -> Path:
-    """Retorna la ruta del archivo data.csv."""
-    return _get_data_csv_path(project_path)
+def get_data_csv_path(project_path: Path, element_type: str = "vigas") -> Path:
+    return _get_data_csv_path(project_path, element_type)
 
 
-def csv_exists(project_path: Path) -> bool:
-    """Verifica si existe el archivo data.csv."""
-    return _get_data_csv_path(project_path).exists()
+def csv_exists(project_path: Path, element_type: str = "vigas") -> bool:
+    return _get_data_csv_path(project_path, element_type).exists()
 
 
 def write_results_csv(
@@ -91,10 +113,8 @@ def write_results_csv(
 
 
 def read_results_csv(project_path: Path, filename: str) -> list[dict]:
-    """Lee un archivo CSV de results/ del proyecto."""
     csv_path = project_path / "results" / filename
     if not csv_path.exists():
         return []
     with open(csv_path, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        return list(reader)
+        return list(csv.DictReader(f))

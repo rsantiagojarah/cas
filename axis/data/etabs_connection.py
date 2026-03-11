@@ -17,13 +17,24 @@ except ImportError:
     ETABS_AVAILABLE = False
 
 
+_cached_connection: Optional[Tuple[Any, Any, Any]] = None
+
+
 def conectar_con_etabs() -> Optional[Tuple[Any, Any, Any]]:
     """
-    Conecta con ETABS mediante COM.
+    Conecta con ETABS mediante COM. Cachea la conexión para reutilizarla.
 
     Returns:
         Tupla (SapModel, myETABSObject, helper) o None si falla.
     """
+    global _cached_connection
+    if _cached_connection is not None:
+        try:
+            _cached_connection[0].GetPresentUnits()
+            return _cached_connection
+        except Exception:
+            _cached_connection = None
+
     if not ETABS_AVAILABLE:
         print("⚠ Error: comtypes no está disponible. Instale con: pip install comtypes")
         return None
@@ -53,7 +64,8 @@ def conectar_con_etabs() -> Optional[Tuple[Any, Any, Any]]:
         Tn_m_C = 12
         SapModel.SetPresentUnits(Tn_m_C)
 
-        return SapModel, myETABSObject, helper
+        _cached_connection = (SapModel, myETABSObject, helper)
+        return _cached_connection
 
     except Exception as e:
         print(f"⚠ Error inesperado en conexión: {e}")

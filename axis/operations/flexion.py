@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from axis.core.registry import register
 from axis.core.exceptions import InvalidInput
+from axis.core.utils import to_float
 from axis.operations.flexion_calculos import (
     beta1,
     profundidad_bloque_compresion,
@@ -66,15 +67,6 @@ def _calcular_flexion(
     }
 
 
-def _to_float(val) -> float:
-    """Convierte a float, manejando strings con coma."""
-    if val is None:
-        raise InvalidInput("Parámetro faltante")
-    if isinstance(val, (int, float)):
-        return float(val)
-    return float(str(val).replace(",", "."))
-
-
 @register("flexion", "viga")
 def flexion_viga(data: dict) -> dict:
     """
@@ -93,12 +85,12 @@ def flexion_viga(data: dict) -> dict:
     resultados = []
     for i, fila in enumerate(filas):
         nombre = fila.get("nombre") or f"Viga {i + 1}"
-        fc = _to_float(fila.get("fc"))
-        fy = _to_float(fila.get("fy"))
-        b = _to_float(fila.get("b"))
-        h = _to_float(fila.get("h"))
-        rec = _to_float(fila.get("rec"))
-        mu = _to_float(fila.get("Mu"))
+        fc = to_float(fila.get("fc"))
+        fy = to_float(fila.get("fy"))
+        b = to_float(fila.get("b"))
+        h = to_float(fila.get("h"))
+        rec = to_float(fila.get("rec"))
+        mu = to_float(fila.get("Mu"))
         res = _calcular_flexion(nombre, fc, fy, b, h, rec, mu)
         resultados.append(res)
 

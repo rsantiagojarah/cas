@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from tabulate import tabulate
 
+from axis.cli.colors import colorize_table
+
 VIGAS_HEADER_MAP = {
     "N": "Nº",
     "nombre": "Nombre",
@@ -43,13 +45,21 @@ FLEXION_HEADER_MAP = {
 }
 
 
-def _cell_str(val: object) -> str:
+def _cell_str(val: object, decimal_places: int | None = None) -> str:
     if val is None or (isinstance(val, str) and val.lower() == "none"):
+        return "-"
+    if val == "-" or (isinstance(val, str) and val.strip() == "-"):
         return "-"
     if val is True or (isinstance(val, str) and val.lower() == "true"):
         return "Si"
     if val is False or (isinstance(val, str) and val.lower() == "false"):
         return "No"
+    if decimal_places is not None:
+        try:
+            f = float(val)
+            return f"{f:.{decimal_places}f}"
+        except (TypeError, ValueError):
+            pass
     return str(val)
 
 
@@ -57,6 +67,7 @@ def format_table(
     rows: list[dict],
     columns: list[str] | None = None,
     header_map: dict[str, str] | None = None,
+    decimal_places: int | None = None,
 ) -> str:
     """Formatea filas en tabla minimalista, centrada. DRY: un solo lugar para tablas."""
     if not rows:
@@ -68,11 +79,12 @@ def format_table(
         or CORTANTE_HEADER_MAP.get(c) or c
         for c in cols
     ]
-    table_rows = [[_cell_str(row.get(c, "")) for c in cols] for row in rows]
+    table_rows = [[_cell_str(row.get(c, ""), decimal_places) for c in cols] for row in rows]
     n = len(headers)
-    return tabulate(
+    raw = tabulate(
         table_rows,
         headers=headers,
         tablefmt="grid",
         colalign=("center",) * n,
     )
+    return colorize_table(raw)

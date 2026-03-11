@@ -101,10 +101,16 @@ def clasificar_sistema_estructural_etabs(
     ].copy()
     sum_v3 = pd.to_numeric(df_x["v3"], errors="coerce").sum()
     sum_v2 = pd.to_numeric(df_y["v2"], errors="coerce").sum()
-    pct_columnas_x = (sum_v3 / cortante_basal_x * 100.0) if cortante_basal_x else 0.0
-    pct_columnas_y = (sum_v2 / cortante_basal_y * 100.0) if cortante_basal_y else 0.0
+    abs_basal_x = abs(cortante_basal_x)
+    abs_basal_y = abs(cortante_basal_y)
+    abs_col_x = abs(sum_v3)
+    abs_col_y = abs(sum_v2)
+    pct_columnas_x = min(100.0, (abs_col_x / abs_basal_x * 100.0)) if abs_basal_x else 0.0
+    pct_columnas_y = min(100.0, (abs_col_y / abs_basal_y * 100.0)) if abs_basal_y else 0.0
     pct_muros_x = 100.0 - pct_columnas_x
     pct_muros_y = 100.0 - pct_columnas_y
+    cortante_muros_x = max(0.0, abs_basal_x - abs_col_x)
+    cortante_muros_y = max(0.0, abs_basal_y - abs_col_y)
     sistema_x = _clasificar_porcentaje(pct_muros_x)
     sistema_y = _clasificar_porcentaje(pct_muros_y)
     tabla_x_out = df_x[["story", col_elem, "outputcase", "v3"]].copy()
@@ -124,8 +130,12 @@ def clasificar_sistema_estructural_etabs(
         "tabla_clasificacion": tabla_clasif,
         "sum_v3": float(sum_v3),
         "sum_v2": float(sum_v2),
-        "cortante_basal_x": cortante_basal_x,
-        "cortante_basal_y": cortante_basal_y,
+        "cortante_basal_x": abs_basal_x,
+        "cortante_basal_y": abs_basal_y,
+        "cortante_columnas_x": abs_col_x,
+        "cortante_columnas_y": abs_col_y,
+        "cortante_muros_x": cortante_muros_x,
+        "cortante_muros_y": cortante_muros_y,
     }
 
 
@@ -156,14 +166,14 @@ def _tabla_clasificacion_e030(
 
 
 def distorsion_admisible_etabs(
-    r0: float,
+    r: float,
     material: str,
     log: bool = True,
 ) -> Optional[dict[str, Any]]:
     """
     Story Drifts: SPX/Direction=X -> DriftX; SPY/Direction=Y -> DriftY.
-    Drift admisible = 0.75 * R0 * (distorsión máxima del material).
-    Verifica que cada drift * (0.75*R0) <= distorsión admisible.
+    Usa R = R0*Ia*Ip. Drift ponderado = 0.75 * R * drift.
+    Verifica que cada drift * (0.75*R) <= distorsión admisible del material.
     """
     df = get_table(
         NOMBRE_TABLA_STORY_DRIFTS,
@@ -174,7 +184,7 @@ def distorsion_admisible_etabs(
         return None
     df = _normalizar_columnas(df)
     drift_max_material = obtener_distorsion_maxima(material)
-    resultado = {"drift_admisible": drift_max_material, "material": material, "r0": r0}
+    resultado = {"drift_admisible": drift_max_material, "material": material, "r": r}
     df_x = df[
         (df["outputcase"].astype(str).str.upper() == "SPX")
         & (df["direction"].astype(str).str.upper() == "X")
@@ -186,7 +196,7 @@ def distorsion_admisible_etabs(
     col_drift_x = "driftx" if "driftx" in df_x.columns else ("drift" if "drift" in df_x.columns else None)
     if col_drift_x and not df_x.empty:
         df_x[col_drift_x] = pd.to_numeric(df_x[col_drift_x], errors="coerce")
-        df_x["drift_ponderado"] = df_x[col_drift_x] * 0.75 * r0
+        df_x["drift_ponderado"] = df_x[col_drift_x] * 0.75 * r
         df_x["cumple"] = df_x["drift_ponderado"] <= drift_max_material
         tabla_x_display = df_x[["story", "outputcase", "direction", col_drift_x]].copy()
         tabla_x_display.columns = ["Story", "OutputCase", "Direction", "DriftX"]
@@ -194,7 +204,12 @@ def distorsion_admisible_etabs(
         verif_x = df_x[["story", "drift_ponderado"]].copy()
         verif_x["Distorsión_Admisible"] = drift_max_material
         verif_x["Cumple"] = df_x["cumple"]
-        verif_x.columns = ["Story", "Drift_ponderado (0.75·R0·Drift)", "Distorsión_Admisible", "Cumple"]
+        verif_x.columns = [
+            "Story",
+            "Drift_ponderado\n(0.75·R·Drift)",
+            "Distorsión\nAdmisible",
+            "Cumple",
+        ]
         resultado["tabla_verificacion_x"] = verif_x
         resultado["cumple_x"] = bool(df_x["cumple"].all())
     else:
@@ -204,7 +219,7 @@ def distorsion_admisible_etabs(
     col_drift_y = "drifty" if "drifty" in df_y.columns else ("drift" if "drift" in df_y.columns else None)
     if col_drift_y and not df_y.empty:
         df_y[col_drift_y] = pd.to_numeric(df_y[col_drift_y], errors="coerce")
-        df_y["drift_ponderado"] = df_y[col_drift_y] * 0.75 * r0
+        df_y["drift_ponderado"] = df_y[col_drift_y] * 0.75 * r
         df_y["cumple"] = df_y["drift_ponderado"] <= drift_max_material
         tabla_y_display = df_y[["story", "outputcase", "direction", col_drift_y]].copy()
         tabla_y_display.columns = ["Story", "OutputCase", "Direction", "DriftY"]
@@ -212,7 +227,12 @@ def distorsion_admisible_etabs(
         verif_y = df_y[["story", "drift_ponderado"]].copy()
         verif_y["Distorsión_Admisible"] = drift_max_material
         verif_y["Cumple"] = df_y["cumple"]
-        verif_y.columns = ["Story", "Drift_ponderado (0.75·R0·Drift)", "Distorsión_Admisible", "Cumple"]
+        verif_y.columns = [
+            "Story",
+            "Drift_ponderado\n(0.75·R·Drift)",
+            "Distorsión\nAdmisible",
+            "Cumple",
+        ]
         resultado["tabla_verificacion_y"] = verif_y
         resultado["cumple_y"] = bool(df_y["cumple"].all())
     else:

@@ -20,12 +20,29 @@ HELP_MAP = {
     "flexion": "cas flexion viga\n  Diseño por flexión de vigas (usa elements/data.csv).",
     "results": "cas results flexion | cas results cortante\n  Ver resultados en tabla.",
     "cortante": "cas cortante viga\n  Diseño por cortante de vigas.",
+    "muro": (
+        "cas muro nucleo <nombre_muro> <L> <fy> <nivel> <hm> <Mu> [phi]\n"
+        "  Predimensionamiento de acero en núcleos de muros de concreto armado (ingreso manual).\n"
+        "  Guarda cada muro en results/muros_nucleo/<nombre_muro>.csv.\n"
+        "cas muro etabs <nombre_muro> <L> <fy> <pier_name> [phi]\n"
+        "  Predimensiona leyendo momentos M3 desde la tabla 'Pier Forces' de ETABS.\n"
+        "cas muro list\n"
+        "  Lista los muros predimensionados.\n"
+        "cas muro delete <nombre_muro>\n"
+        "  Elimina los resultados de un muro."
+    ),
     "sismo": (
-        "cas sismo etapa1 <zona> <perfil>  - Peligro sísmico (C vs T)\n"
-        "cas sismo etapa2 <categoria> <sistema> <Ia> <Ip>  - Coeficiente R\n"
-        "cas sismo etapa3  - Análisis ETABS (periodo, masa, peso, cortantes)\n"
-        "cas sismo etapa4 <r0> <material> [Vx Vy] [h [Δa Δb]]  - Validación (sistema, drift, separación)\n"
-        "cas sismo separacion <h> [Δa Δb]  - Paso 14: separación de edificios (s = 0.006·h ≥ 0.03)"
+        "cas sismo <sentido> Z U perfil R Ia Ip Material  - Análisis E.030\n"
+        "  sentido=X|Y, Z=1-4, U=A-D, perfil=S0-S4, R=8|7|6|3, Material=concreto|acero|albañileria\n"
+        "  Ej: cas sismo X 3 C S2 8 1 1 concreto.\n"
+        "  Rapido: cas sismo rapido X 3 C S2 8 concreto rb,masa tors\n"
+        "  Irregularidades: cas sismo irregularidades | cas sismo irregularidades calcular rb tors"
+    ),
+    "irregular": (
+        "cas irregular <tipo> X|Y <datos...>  - Verificacion E.030 (Tablas 8 y 9)\n"
+        "  Sentido X o Y obligatorio. Tipos: rigidez, resistencia, discontinuidad, etc.\n"
+        "  Persistencia: list | show [id] | delete <id> | edit <id> <tipo> X|Y datos...\n"
+        "  Ej: cas irregular rigidez X 500 800 750 | cas irregular list"
     ),
     "clear": "clear | cls\n  Limpiar la pantalla del REPL (solo en modo interactivo).",
 }
@@ -52,17 +69,30 @@ HELP_LINES = [
     "  delete viga <i> [i2 i3 ...]",
     "",
     "Cálculos:",
-    "  flexion viga              Diseño por flexión",
-    "  cortante viga             Diseño por cortante",
-    "  results flexion           Ver resultados flexión",
-    "  results cortante          Ver resultados cortante",
+    "  flexion viga                    Diseño por flexión",
+    "  cortante viga                   Diseño por cortante",
+    "  muro nucleo <nombre> <L> <fy> <nivel> <hm> <Mu> [phi]",
+    "                                  Predimensionamiento núcleo de muro (manual)",
+    "  muro etabs <nombre> <L> <fy> <pier_name> [phi]",
+    "                                  Predimensionamiento desde ETABS (Pier Forces)",
+    "  muro list                        Listar muros predimensionados",
+    "  muro delete <nombre>             Borrar resultados de un muro",
+    "  results flexion                  Ver resultados flexión",
+    "  results cortante                 Ver resultados cortante",
+    "",
+    "Irregularidades E.030:",
+    "  irregular <tipo> X|Y datos   Verificacion por sentido (rigidez, resistencia, etc.)",
+    "  irregular list [tipo] [X|Y]  Listar analisis guardados",
+    "  irregular show [id]          Mostrar analisis",
+    "  irregular delete <id>        Borrar analisis",
+    "  irregular edit <id> tipo X|Y  Editar analisis",
     "",
     "Sismo E.030:",
-    "  sismo etapa1 <zona> <perfil>",
-    "  sismo etapa2 <categoria> <sistema> <Ia> <Ip>",
-    "  sismo etapa3              (ETABS)",
-    "  sismo etapa4 <r0> <material> [Vx Vy] [h [Δa Δb]]",
-    "  sismo separacion <h> [Δa Δb]",
+    "  sismo <sentido> Z U perfil R Ia Ip Material     Ej: X 3 C S2 8 1 1 concreto",
+    "  sismo rapido <sentido> Z U perfil R Material <cod_altura> <cod_planta>",
+    "  sismo irregularidades                           Ver codigos Ia/Ip (tablas 8 y 9)",
+    "  sismo results                                  Ver resultados",
+    "  sismo separacion <h> [da db]                    Separación edificios",
     "",
     "REPL: clear, cls            Limpiar pantalla",
     "",

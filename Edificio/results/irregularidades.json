@@ -1,0 +1,539 @@
+{
+  "analisis": [
+    {
+      "id": "0c71ceaa",
+      "tipo": "resistencia",
+      "sentido": "Y",
+      "datos": [
+        80.0,
+        100.0,
+        95.0,
+        90.0
+      ],
+      "factor": 1.0,
+      "factor_tipo": "Ia",
+      "filas": [
+        {
+          "Piso": 1,
+          "V_res_i": 80.0,
+          "V_res_sup": 100.0,
+          "V_i/V_sup": 0.8,
+          "Clasificacion": "Regular",
+          "Ia": 1.0
+        },
+        {
+          "Piso": 2,
+          "V_res_i": 100.0,
+          "V_res_sup": 95.0,
+          "V_i/V_sup": 1.0526,
+          "Clasificacion": "Regular",
+          "Ia": 1.0
+        },
+        {
+          "Piso": 3,
+          "V_res_i": 95.0,
+          "V_res_sup": 90.0,
+          "V_i/V_sup": 1.0556,
+          "Clasificacion": "Regular",
+          "Ia": 1.0
+        }
+      ],
+      "timestamp": "2026-03-11T10:54:49.654169"
+    },
+    {
+      "id": "fbfa3ed3",
+      "tipo": "discontinuidad",
+      "sentido": "X",
+      "datos": [
+        15.0,
+        30.0,
+        8.0,
+        0.0
+      ],
+      "factor": 0.8,
+      "factor_tipo": "Ia",
+      "filas": [
+        {
+          "Piso": 1,
+          "Desal.%": 15.0,
+          "Clasificacion": "Regular",
+          "Ia": 1.0
+        },
+        {
+          "Piso": 2,
+          "Desal.%": 30.0,
+          "Clasificacion": "Discontinuidad",
+          "Ia": 0.8
+        },
+        {
+          "Piso": 3,
+          "Desal.%": 8.0,
+          "Clasificacion": "Regular",
+          "Ia": 1.0
+        },
+        {
+          "Piso": 4,
+          "Desal.%": 0.0,
+          "Clasificacion": "Regular",
+          "Ia": 1.0
+        }
+      ],
+      "timestamp": "2026-03-11T11:04:58.976458"
+    },
+    {
+      "id": "f2a8c601",
+      "tipo": "discontinuidad",
+      "sentido": "X",
+      "datos": [
+        [
+          4.0,
+          0.8
+        ],
+        [
+          5.0,
+          1.0
+        ],
+        [
+          4.0,
+          0.2
+        ]
+      ],
+      "factor": 1.0,
+      "factor_tipo": "Ia",
+      "filas": [
+        {
+          "Piso": 1,
+          "L": 4.0,
+          "d": 0.8,
+          "d/L%": 20.0,
+          "Clasificacion": "Regular",
+          "Ia": 1.0
+        },
+        {
+          "Piso": 2,
+          "L": 5.0,
+          "d": 1.0,
+          "d/L%": 20.0,
+          "Clasificacion": "Regular",
+          "Ia": 1.0
+        },
+        {
+          "Piso": 3,
+          "L": 4.0,
+          "d": 0.2,
+          "d/L%": 5.0,
+          "Clasificacion": "Regular",
+          "Ia": 1.0
+        }
+      ],
+      "timestamp": "2026-03-11T11:16:20.628888"
+    },
+    {
+      "id": "bb37cd2a",
+      "tipo": "torsional",
+      "sentido": "X",
+      "datos": [
+        [
+          0.005,
+          0.006,
+          3.0
+        ],
+        [
+          0.008,
+          0.009,
+          3.0
+        ]
+      ],
+      "factor": 1.0,
+      "factor_tipo": "Ip",
+      "filas": [
+        {
+          "Piso": 1,
+          "Delta_max": 0.006,
+          "Delta_prom": 0.0055,
+          "hei": 3.0,
+          "Ratio": "-",
+          "Irregular": "No aplica",
+          "Extrema": "-"
+        },
+        {
+          "Piso": 2,
+          "Delta_max": 0.009,
+          "Delta_prom": 0.0085,
+          "hei": 3.0,
+          "Ratio": "-",
+          "Irregular": "No aplica",
+          "Extrema": "-"
+        }
+      ],
+      "timestamp": "2026-03-11T11:37:31.097454",
+      "metadata": {
+        "material": "concreto"
+      }
+    },
+    {
+      "id": "c560c2bd",
+      "tipo": "torsional",
+      "sentido": "X",
+      "datos": [
+        [
+          0.007,
+          0.008,
+          3.0
+        ],
+        [
+          0.01,
+          0.011,
+          3.0
+        ]
+      ],
+      "factor": 1.0,
+      "factor_tipo": "Ip",
+      "filas": [
+        {
+          "Piso": 1,
+          "Delta_max": 0.008,
+          "Delta_prom": 0.0075,
+          "hei": 3.0,
+          "Ratio": "-",
+          "Irregular": "No aplica",
+          "Extrema": "-"
+        },
+        {
+          "Piso": 2,
+          "Delta_max": 0.011,
+          "Delta_prom": 0.010499999999999999,
+          "hei": 3.0,
+          "Ratio": 1.0476,
+          "Irregular": "No",
+          "Extrema": "No"
+        }
+      ],
+      "timestamp": "2026-03-11T11:38:25.915230",
+      "metadata": {
+        "material": "concreto"
+      }
+    },
+    {
+      "id": "0e1c7f24",
+      "tipo": "torsional",
+      "sentido": "X",
+      "datos": [
+        [
+          "no-aplica"
+        ]
+      ],
+      "factor": 1.0,
+      "factor_tipo": "Ip",
+      "filas": [
+        {
+          "Piso": "-",
+          "Delta_max": "-",
+          "Delta_prom": "-",
+          "Aplica": "No",
+          "Ratio": "-",
+          "Irregular": "No aplica",
+          "Extrema": "-"
+        }
+      ],
+      "timestamp": "2026-03-11T11:52:24.343144"
+    },
+    {
+      "id": "028b6da3",
+      "tipo": "torsional",
+      "sentido": "Y",
+      "datos": [
+        [
+          0.008,
+          0.018,
+          "si"
+        ],
+        [
+          0.01,
+          0.016,
+          "no"
+        ]
+      ],
+      "factor": 0.75,
+      "factor_tipo": "Ip",
+      "filas": [
+        {
+          "Piso": 1,
+          "Delta_max": 0.018,
+          "Delta_prom": 0.013,
+          "Aplica": "Si",
+          "Ratio": 1.3846,
+          "Irregular": "Si",
+          "Extrema": "No"
+        },
+        {
+          "Piso": 2,
+          "Delta_max": 0.016,
+          "Delta_prom": 0.013000000000000001,
+          "Aplica": "No",
+          "Ratio": "-",
+          "Irregular": "No aplica",
+          "Extrema": "-"
+        }
+      ],
+      "timestamp": "2026-03-11T11:52:46.448336"
+    },
+    {
+      "id": "539b7b79",
+      "tipo": "torsional",
+      "sentido": "X",
+      "datos": [
+        [
+          "no-aplica"
+        ]
+      ],
+      "factor": 1.0,
+      "factor_tipo": "Ip",
+      "filas": [
+        {
+          "Piso": "-",
+          "Delta_max": "-",
+          "Delta_prom": "-",
+          "hei": "-",
+          "Ratio": "-",
+          "Irregular": "No aplica",
+          "Extrema": "-"
+        }
+      ],
+      "timestamp": "2026-03-11T12:01:49.375485"
+    },
+    {
+      "id": "6ca2c623",
+      "tipo": "torsional",
+      "sentido": "Y",
+      "datos": [
+        [
+          0.008,
+          0.018,
+          3.0
+        ],
+        [
+          0.009999999999999998,
+          0.016000000000000004,
+          3.0
+        ]
+      ],
+      "factor": 0.75,
+      "factor_tipo": "Ip",
+      "filas": [
+        {
+          "Piso": 1,
+          "da": 0.008,
+          "db": 0.018,
+          "Delta_max": 0.018,
+          "Delta_prom": 0.013,
+          "hei": 3.0,
+          "Ratio": 1.3846,
+          "Irregular": "Si",
+          "Extrema": "No"
+        },
+        {
+          "Piso": 2,
+          "da": 0.01,
+          "db": 0.016,
+          "Delta_max": 0.016000000000000004,
+          "Delta_prom": 0.013000000000000001,
+          "hei": 3.0,
+          "Ratio": 1.2308,
+          "Irregular": "No",
+          "Extrema": "No"
+        }
+      ],
+      "timestamp": "2026-03-11T12:01:49.797689"
+    },
+    {
+      "id": "371be20c",
+      "tipo": "diafragma",
+      "sentido": "X",
+      "datos": [
+        [
+          30.0,
+          50.0,
+          8.0,
+          40.0
+        ],
+        [
+          20.0,
+          60.0,
+          12.0,
+          50.0
+        ]
+      ],
+      "factor": 0.85,
+      "factor_tipo": "Ip",
+      "filas": [
+        {
+          "Piso": 1,
+          "%Abertura": 60.0,
+          "%Seccion": 20.0,
+          "Irregular": "Si"
+        },
+        {
+          "Piso": 2,
+          "%Abertura": 33.33,
+          "%Seccion": 24.0,
+          "Irregular": "Si"
+        }
+      ],
+      "timestamp": "2026-03-11T12:12:41.717541"
+    },
+    {
+      "id": "16bdce11",
+      "tipo": "diafragma",
+      "sentido": "Y",
+      "datos": [
+        [
+          25.0,
+          50.0,
+          30.0,
+          60.0
+        ]
+      ],
+      "factor": 1.0,
+      "factor_tipo": "Ip",
+      "filas": [
+        {
+          "Piso": 1,
+          "%Abertura": 50.0,
+          "%Seccion": 50.0,
+          "Irregular": "No"
+        }
+      ],
+      "timestamp": "2026-03-11T12:13:15.733160"
+    },
+    {
+      "id": "5cec3e8c",
+      "tipo": "diafragma",
+      "sentido": "Y",
+      "datos": [
+        [
+          25.0,
+          50.0,
+          null,
+          null
+        ],
+        [
+          30.0,
+          60.0,
+          null,
+          null
+        ]
+      ],
+      "factor": 1.0,
+      "factor_tipo": "Ip",
+      "filas": [
+        {
+          "Piso": 1,
+          "%Abertura": 50.0,
+          "%Seccion": "-",
+          "Irregular": "No"
+        },
+        {
+          "Piso": 2,
+          "%Abertura": 50.0,
+          "%Seccion": "-",
+          "Irregular": "No"
+        }
+      ],
+      "timestamp": "2026-03-11T12:13:51.714071"
+    },
+    {
+      "id": "e8916b92",
+      "tipo": "diafragma",
+      "sentido": "X",
+      "datos": [
+        [
+          30.0,
+          50.0,
+          8.0,
+          40.0
+        ],
+        [
+          20.0,
+          60.0,
+          12.0,
+          50.0
+        ]
+      ],
+      "factor": 0.85,
+      "factor_tipo": "Ip",
+      "filas": [
+        {
+          "Piso": 1,
+          "%Abertura": 60.0,
+          "%Seccion": 20.0,
+          "Irregular": "Si"
+        },
+        {
+          "Piso": 2,
+          "%Abertura": 33.33,
+          "%Seccion": 24.0,
+          "Irregular": "Si"
+        }
+      ],
+      "timestamp": "2026-03-11T12:14:15.342231"
+    },
+    {
+      "id": "665f76ae",
+      "tipo": "sistemas-no-paralelos",
+      "sentido": "X",
+      "datos": [
+        35.0
+      ],
+      "factor": 0.9,
+      "factor_tipo": "Ip",
+      "filas": [
+        {
+          "Angulo": 35.0,
+          "Irregular": "Si"
+        }
+      ],
+      "timestamp": "2026-03-11T12:19:28.244744"
+    },
+    {
+      "id": "8a742ade",
+      "tipo": "sistemas-no-paralelos",
+      "sentido": "Y",
+      "datos": [
+        25.0
+      ],
+      "factor": 1.0,
+      "factor_tipo": "Ip",
+      "filas": [
+        {
+          "Angulo": 25.0,
+          "Irregular": "No"
+        }
+      ],
+      "timestamp": "2026-03-11T12:19:28.532797"
+    },
+    {
+      "id": "fa53f165",
+      "tipo": "discontinuidad",
+      "sentido": "X",
+      "datos": [
+        [
+          "no-aplica"
+        ]
+      ],
+      "factor": 1.0,
+      "factor_tipo": "Ia",
+      "filas": [
+        {
+          "Piso": "-",
+          "L": "-",
+          "d": "-",
+          "d/L%": "-",
+          "Clasificacion": "No aplica",
+          "Ia": "1.0"
+        }
+      ],
+      "timestamp": "2026-03-11T12:26:58.769086"
+    }
+  ]
+}

@@ -14,26 +14,41 @@ import pandas as pd
 
 from axis.data.etabs_connection import conectar_con_etabs, verificar_etabs_disponible
 
+_table_cache: dict[str, Optional[pd.DataFrame]] = {}
+
+
+def clear_table_cache() -> None:
+    """Limpia la caché de tablas (útil si el modelo ETABS cambia)."""
+    _table_cache.clear()
+
 
 def get_table(
     table_name: str,
     group_name: str = "",
     alternate_names: Optional[list[str]] = None,
     log: bool = True,
+    use_cache: bool = True,
 ) -> Optional[pd.DataFrame]:
     """
-    Obtiene una tabla de ETABS como DataFrame.
+    Obtiene una tabla de ETABS como DataFrame. Cachea el resultado para
+    evitar lecturas COM repetidas de la misma tabla.
 
     Args:
-        table_name: Nombre de la tabla en ETABS (ej. "Element Forces - Columns",
-            "Story Forces", "Story Definitions", "Story Drifts").
+        table_name: Nombre de la tabla en ETABS.
         group_name: Nombre del grupo para filtrar (vacío = todas).
         alternate_names: Nombres alternativos a intentar si la tabla principal falla.
         log: Si True, imprime mensajes de éxito o error.
+        use_cache: Si True, devuelve copia del cache si ya se leyó la tabla.
 
     Returns:
         DataFrame con columnas = headers de la tabla, o None si falla.
     """
+    cache_key = f"{table_name}|{group_name}"
+
+    if use_cache and cache_key in _table_cache:
+        cached = _table_cache[cache_key]
+        return cached.copy() if cached is not None else None
+
     if not verificar_etabs_disponible():
         if log:
             print("⚠ Error: comtypes no está disponible. Instale con: pip install comtypes")
@@ -70,6 +85,7 @@ def get_table(
             if log:
                 print(f"⚠ Error al obtener tabla '{table_name}': {last_error}")
                 print("   Verifique que el modelo tenga los datos y que se haya ejecutado el análisis.")
+            _table_cache[cache_key] = None
             return None
 
         cols = table[2]
@@ -78,7 +94,9 @@ def get_table(
         if no_of_rows == 0:
             if log:
                 print(f"⚠ Advertencia: La tabla '{used_name}' está vacía.")
-            return pd.DataFrame(columns=cols)
+            df = pd.DataFrame(columns=cols)
+            _table_cache[cache_key] = df
+            return df.copy()
 
         vals = np.array_split(table[4], no_of_rows)
         df = pd.DataFrame(vals)
@@ -86,7 +104,9 @@ def get_table(
 
         if log:
             print(f"✓ Se obtuvieron {no_of_rows} filas de '{used_name}'")
-        return df
+
+        _table_cache[cache_key] = df
+        return df.copy()
 
     except Exception as e:
         if log:

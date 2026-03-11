@@ -42,7 +42,8 @@ def create_project(name: str, base_path: Path | None = None) -> Path:
     project_path.mkdir(parents=True, exist_ok=True)
     (project_path / "results").mkdir(exist_ok=True)
     (project_path / "reports").mkdir(exist_ok=True)
-    ensure_data_csv_exists(project_path)
+    ensure_data_csv_exists(project_path, "vigas")
+    ensure_data_csv_exists(project_path, "columnas")
     config = {"name": name, "version": "1.0"}
     config_path = project_path / "axis_project.json"
     with open(config_path, "w", encoding="utf-8") as f:

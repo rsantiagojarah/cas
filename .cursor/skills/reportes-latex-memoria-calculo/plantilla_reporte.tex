@@ -1,0 +1,129 @@
+\documentclass[paper=a4,fontsize=10pt]{scrartcl}
+
+% ---------------------------
+% Formato general
+% ---------------------------
+\usepackage[top=2.5cm,bottom=2.5cm,left=2.5cm,right=2.5cm]{geometry}
+\usepackage[spanish]{babel}
+\usepackage{setspace}
+\usepackage[protrusion=true,expansion=true]{microtype}
+\usepackage{amsmath,amsfonts,amsthm}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+% ---------------------------
+% Encabezado y pie
+% ---------------------------
+\pagestyle{fancy}
+\lhead{}
+\chead{}
+\rhead{}
+\lfoot{}
+\cfoot{}
+\rfoot{\footnotesize Pagina \thepage\ de \pageref{LastPage}}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0.4pt}
+
+% ---------------------------
+% Titulos (tamano moderado)
+% ---------------------------
+\usepackage{sectsty}
+\sectionfont{\normalsize\bfseries}
+\subsectionfont{\small\bfseries}
+
+\title{\textbf{Memoria de Calculo Estructural}}
+\author{[Nombre del proyecto]}
+\date{\today}
+
+\begin{document}
+\onehalfspacing
+\maketitle
+\thispagestyle{fancy}
+
+\section*{Resumen}
+Describir brevemente el alcance del analisis y las verificaciones principales.
+
+\section*{1. Datos generales}
+\begin{itemize}
+  \item Proyecto: [Nombre]
+  \item Ubicacion: [Ciudad]
+  \item Norma: [E.030 u otra]
+  \item Software: [ETABS / SAP2000 / otro]
+\end{itemize}
+
+\section*{2. Parametros de analisis}
+\begin{table}[H]
+\centering
+\caption{Parametros principales}
+\begin{tabular}{lc}
+\toprule
+Parametro & Valor \\
+\midrule
+$Z$ & [0.35] \\
+$U$ & [1.0] \\
+$S$ & [1.15] \\
+$R$ & [5.4] \\
+$T_p$ & [0.6 s] \\
+$T_l$ & [2.0 s] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section*{3. Formulacion}
+\[
+S_a = \frac{Z \cdot U \cdot C \cdot S}{R}\,g
+\]
+
+\section*{4. Espectro sismico}
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+width=0.9\linewidth,
+height=6.5cm,
+xlabel={$T$ (s)},
+ylabel={$S_a/g$},
+xmin=0, xmax=2.5,
+ymin=0, ymax=0.25,
+grid=major
+]
+% Reemplazar por funciones/valores reales del proyecto
+\addplot[blue,domain=0:0.6,samples=2] {0.18634};
+\addplot[blue,domain=0.6:2.0,samples=120] {0.111804/x};
+\addplot[blue,domain=2.0:2.5,samples=120] {0.223608/(x^2)};
+\end{axis}
+\end{tikzpicture}
+\caption{Espectro de diseno}
+\end{figure}
+
+\section*{5. Resultados y verificaciones}
+\begin{table}[H]
+\centering
+\caption{Verificacion de cortante basal}
+\begin{tabular}{lc}
+\toprule
+Concepto & Valor \\
+\midrule
+$V_{\text{est}}$ & [429.36 ton] \\
+$V_{\text{din}}$ & [249.95 ton] \\
+Factor de escala $\gamma$ & [1.546] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section*{6. Conclusiones}
+Indicar cumplimiento normativo, controles que gobiernan el diseno y recomendaciones.
+
+\begin{thebibliography}{9}
+\bibitem{e030}
+Reglamento Nacional de Edificaciones. Norma E.030: Diseno Sismorresistente.
+\end{thebibliography}
+
+\end{document}
+

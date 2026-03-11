@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from axis.core.registry import register
 from axis.core.exceptions import InvalidInput
+from axis.core.utils import to_float
 from axis.operations.cortante_calculos import (
     PHI_CORTANTE,
     vc,
@@ -75,15 +76,6 @@ def _calcular_cortante(
     }
 
 
-def _to_float(val) -> float:
-    """Convierte a float, manejando strings con coma."""
-    if val is None or val == "":
-        return 0.0
-    if isinstance(val, (int, float)):
-        return float(val)
-    return float(str(val).replace(",", "."))
-
-
 @register("cortante", "viga")
 def cortante_viga(data: dict) -> dict:
     """
@@ -96,12 +88,12 @@ def cortante_viga(data: dict) -> dict:
     resultados = []
     for i, fila in enumerate(data["vigas"]):
         nombre = fila.get("nombre") or f"Viga {i + 1}"
-        fc = _to_float(fila.get("fc"))
-        fy = _to_float(fila.get("fy"))
-        b = _to_float(fila.get("b"))
-        h = _to_float(fila.get("h"))
-        rec = _to_float(fila.get("rec"))
-        vu = _to_float(fila.get("Vu", 0))
+        fc = to_float(fila.get("fc"))
+        fy = to_float(fila.get("fy"))
+        b = to_float(fila.get("b"))
+        h = to_float(fila.get("h"))
+        rec = to_float(fila.get("rec"))
+        vu = to_float(fila.get("Vu"), default=0.0)
         res = _calcular_cortante(nombre, fc, fy, b, h, rec, vu)
         resultados.append(res)
 
