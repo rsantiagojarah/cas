@@ -22,14 +22,37 @@ HELP_MAP = {
     "cortante": "cas cortante viga\n  Diseño por cortante de vigas.",
     "muro": (
         "cas muro nucleo <nombre_muro> <L> <fy> <nivel> <hm> <Mu> [phi]\n"
-        "  Predimensionamiento de acero en núcleos de muros de concreto armado (ingreso manual).\n"
-        "  Guarda cada muro en results/muros_nucleo/<nombre_muro>.csv.\n"
+        "  Predimensionamiento de acero en núcleos de muros (ingreso manual).\n"
         "cas muro etabs <nombre_muro> <L> <fy> <pier_name> [phi]\n"
-        "  Predimensiona leyendo momentos M3 desde la tabla 'Pier Forces' de ETABS.\n"
-        "cas muro list\n"
-        "  Lista los muros predimensionados.\n"
-        "cas muro delete <nombre_muro>\n"
-        "  Elimina los resultados de un muro."
+        "  Predimensiona leyendo M3 desde ETABS (Pier Forces).\n"
+        "cas muro list          Lista muros predimensionados.\n"
+        "cas muro delete <nm>   Elimina resultados predimensionamiento.\n"
+        "\n"
+        "DISEÑO COMPLETO RNE E.060:\n"
+        "cas muro add <nombre> <hm> <lm> <t> <fc> <fy> <fyt> <Pu> <Vu> <Mu> [delta_u] [c] [Mn]\n"
+        "  Agrega/actualiza datos de muro (hm/lm/t:cm, fc/fy/fyt:kg/cm²,\n"
+        "  Pu:Tn, Vu:Tn, Mu:Tn-m, delta_u:cm, c:cm, Mn:Tn-m).\n"
+        "cas muro data          Lista muros almacenados para diseño.\n"
+        "cas muro remove <nm>   Elimina un muro de datos.\n"
+        "cas muro diseno [nombre] [DEFORMACION|ESFUERZO]\n"
+        "  Ejecuta diseño completo: espesor, flexión, agrietamiento, corte,\n"
+        "  elementos de borde (método auto o manual).\n"
+        "cas muro results [nm]          Ver resumen de resultados de diseno.\n"
+        "cas muro report [nm] [metodo]  Generar reporte Markdown/Word de diseno (piso unico).\n"
+        "cas muro results-delete <nm>   Borrar resultados de diseno (piso unico).\n"
+        "\n"
+        "DISENO MULTIPISO RNE E.060:\n"
+        "cas muro def <nombre> <lm> <t> <fc> <fy> <fyt>\n"
+        "  Definir muro (geometria + materiales) para diseno multipiso.\n"
+        "cas muro piso <nombre> <N> <hm> <Pu> <Vu> <Mu> [Mn] [c]\n"
+        "  Agregar piso (hm:cm, Pu:Tn, Vu:Tn, Mu:Tn-m, Mn:Tn-m, c:cm).\n"
+        "cas muro pisos [nombre]   Listar pisos definidos.\n"
+        "cas muro del-piso <nm> <N>  Eliminar un piso.\n"
+        "cas muro multi <nombre> [DEFORMACION|ESFUERZO] [delta_u] [joint_Av]\n"
+        "  Diseno multipiso completo E.060 (borde global con H_total).\n"
+        "cas muro multi-results [nm]  Ver resultados multipiso.\n"
+        "cas muro etabs-diseno <nombre> <lm> <t> <fc> <fy> <fyt> <pier> [metodo] [du] [Av]\n"
+        "  Importar ETABS (Pier Forces + Story Definitions) y diseno multipiso."
     ),
     "sismo": (
         "cas sismo <sentido> Z U perfil R Ia Ip Material  - Análisis E.030\n"
@@ -43,6 +66,59 @@ HELP_MAP = {
         "  Sentido X o Y obligatorio. Tipos: rigidez, resistencia, discontinuidad, etc.\n"
         "  Persistencia: list | show [id] | delete <id> | edit <id> <tipo> X|Y datos...\n"
         "  Ej: cas irregular rigidez X 500 800 750 | cas irregular list"
+    ),
+    "columna": (
+        "DISEÑO DE COLUMNAS DE CONCRETO ARMADO (E.060)\n"
+        "\n"
+        "DATOS DE ENTRADA:\n"
+        "cas columna props <Unique_Name> <k> <lu> <I> <Ag> <Ec> <Bd> [fc] [fy]\n"
+        "  Story desde esfuerzos. Si indica fc, Ec = 15000*sqrt(fc) (E.060).\n"
+        "cas columna props-list              Listar propiedades.\n"
+        "cas columna props-remove <UN>       Borrar propiedades de una columna.\n"
+        "cas columna esfuerzos <Story> <UN> <Station> <OC> <ST> <P> <M2> <M3>\n"
+        "  Agregar esfuerzo (P:Tn, M2/M3:Tn-m, ST:Max/Min o '-').\n"
+        "cas columna esfuerzos-list [UN]     Listar esfuerzos.\n"
+        "cas columna story-forces <Story> <OC> <P> <VX> <VY>\n"
+        "  Agregar story forces (Tn).\n"
+        "cas columna drifts <Story> <OC> <Drift>\n"
+        "  Agregar story drift.\n"
+        "cas columna alturas <Story> <Height>\n"
+        "  Agregar altura de entrepiso (m).\n"
+        "cas columna factor-r <R_X> <R_Y>\n"
+        "  Configurar factor de reduccion R.\n"
+        "cas diagrama add <nombre> <nominal|ultimo> [archivo]\n"
+        "  Cargar diagrama (Excel o CSV). Sin archivo abre ventana para elegir.\n"
+        "cas diagrama plot <nombre> [nominal|ultimo] [combinaciones.csv]\n"
+        "  Superficie 3D (como Diseno_Columnas) y puntos de combinaciones (CSV/Excel P,M2,M3).\n"
+        "cas diagrama check-pm <muro> <Story> <Combinacion>\n"
+        "  Verificacion P-M de una combinacion: P, M2, M3, theta, Mu_equiv, Cap, Ratio.\n"
+        "cas columna asignar <UN> <Nominal> [Ultimo]\n"
+        "  Asignar diagramas a columna.\n"
+        "\n"
+        "PASOS DE ANALISIS (DETALLADOS):\n"
+        "cas columna q                 Paso 1: Indice de estabilidad Q\n"
+        "cas columna esbeltez          Paso 2: Momentos extremos M1/M2\n"
+        "cas columna segundo-orden     Paso 3: Efectos de segundo orden\n"
+        "cas columna cm                Paso 4: Factor Cm\n"
+        "cas columna delta             Paso 5: Factor de amplificacion delta\n"
+        "cas columna esfuerzos-fin     Paso 6: Esfuerzos finales amplificados\n"
+        "cas columna mn                Paso 7: Momentos nominales Mn2/Mn3\n"
+        "cas columna estados           Paso 8: Estados sismicos combinados\n"
+        "cas columna verificacion      Paso 9: Verificacion P-M\n"
+        "cas columna resumen           Resumen de verificacion P-M\n"
+        "\n"
+        "DISEÑO COMPLETO EN UN SOLO COMANDO:\n"
+        "cas columna diseno\n"
+        "  Ejecuta internamente los pasos q, esbeltez, segundo-orden, cm, delta,\n"
+        "  esfuerzos-fin, mn, estados, verificacion y resumen (mostrando todas\n"
+        "  las tablas de cada paso en la consola).\n"
+        "\n"
+        "IMPORTAR DESDE ETABS:\n"
+        "cas columna etabs-import [R_X] [R_Y]\n"
+        "  Importa: Element Forces - Columns, Story Forces, Story Drifts,\n"
+        "  Story Definitions y factor R. ETABS debe estar abierto con modelo cargado.\n"
+        "cas columna etabs-diseno [R_X] [R_Y]\n"
+        "  Atajo: importa desde ETABS y luego ejecuta 'cas columna diseno' en un paso."
     ),
     "clear": "clear | cls\n  Limpiar la pantalla del REPL (solo en modo interactivo).",
 }
@@ -61,6 +137,12 @@ HELP_LINES = [
     "  tree                      Estructura del proyecto",
     "  info                      Proyecto activo",
     "",
+    "Diagramas P-M (muros y columnas):",
+    "  diagrama add <nombre> <nominal|ultimo> [archivo]",
+    "  diagrama list             Listar diagramas en la base de datos",
+    "  diagrama plot <nombre> [nominal|ultimo] [combinaciones.csv]  Superficie 3D + puntos comb.",
+    "  diagrama check-pm <muro> <Story> <Combo>  Verificar una combinacion P-M (theta, Cap, Ratio).",
+    "",
     "Vigas:",
     "  add viga <nombre> <fc> <fy> <b> <h> <rec> <Mu> [Vu]",
     "  list vigas                Ver vigas",
@@ -76,9 +158,37 @@ HELP_LINES = [
     "  muro etabs <nombre> <L> <fy> <pier_name> [phi]",
     "                                  Predimensionamiento desde ETABS (Pier Forces)",
     "  muro list                        Listar muros predimensionados",
-    "  muro delete <nombre>             Borrar resultados de un muro",
+    "  muro delete <nombre>             Borrar resultados predimensionamiento",
     "  results flexion                  Ver resultados flexión",
     "  results cortante                 Ver resultados cortante",
+    "",
+    "Diseno de Muros (RNE E.060) - Piso unico:",
+    "  muro add <nombre> <hm> <lm> <t> <fc> <fy> <fyt> <Pu> <Vu> <Mu> [delta_u] [c] [Mn]",
+    "                                  Agregar/actualizar muro para diseno",
+    "  muro data                        Listar muros almacenados",
+    "  muro remove <nombre>             Eliminar muro de datos",
+    "  muro diseno [nombre] [DEFORMACION|ESFUERZO]",
+    "                                  Diseno completo E.060 (flexion, corte, borde)",
+    "  muro results [nombre]            Ver resultados de diseno de muros",
+    "",
+    "Diseno Multipiso (RNE E.060):",
+    "  muro def <nombre> <lm> <t> <fc> <fy> <fyt>",
+    "                                  Definir muro (geometria + materiales)",
+    "  muro piso <nombre> <N> <hm> <Pu> <Vu> <Mu> [Mn] [c]",
+    "                                  Agregar piso (Pu:Tn, Vu:Tn, Mu:Tn-m)",
+    "  muro pisos [nombre]              Listar pisos definidos",
+    "  muro del-piso <nombre> <N>       Eliminar un piso",
+    "  muro asignar <muro> <Nom> [Ult] Asignar diagramas a un muro",
+    "  muro multi <nombre> [DEFORMACION|ESFUERZO] [delta_u] [joint_Av]",
+    "                                  Diseno multipiso completo E.060",
+    "  muro multi-results [nombre]      Ver resultados multipiso",
+    "  muro multi-report <nombre> [metodo] [du] [Av] [R]\n"
+    "                                  Generar reporte multipiso (md/docx + figura P-M2-M3).\n"
+    "  muro multi-delete <nombre>       Borrar resultados multipiso y datos asociados",
+    "  muro etabs-import <nombre> <lm> <t> <fc> <fy> <fyt> <pier>",
+    "                                  PASO 2: Importar ETABS, ver TABLA 1",
+    "  muro etabs-diseno <nombre> <lm> <t> <fc> <fy> <fyt> <pier> [metodo] [du] [Av]",
+    "                                  Atajo: importar + disenar en un paso",
     "",
     "Irregularidades E.030:",
     "  irregular <tipo> X|Y datos   Verificacion por sentido (rigidez, resistencia, etc.)",
@@ -93,6 +203,36 @@ HELP_LINES = [
     "  sismo irregularidades                           Ver codigos Ia/Ip (tablas 8 y 9)",
     "  sismo results                                  Ver resultados",
     "  sismo separacion <h> [da db]                    Separación edificios",
+    "",
+    "Diseno de Columnas (E.060):",
+    "  columna props <Unique_Name> <k> <lu> <I> <Ag> <Ec> <Bd> [fc] [fy]",
+    "                                  Propiedades (Story desde esfuerzos)",
+    "  columna props-list              Listar propiedades",
+    "  columna props-remove <UN>       Borrar propiedades de columna",
+    "  columna esfuerzos <Story> <UN> <Station> <OC> <ST> <P> <M2> <M3>",
+    "                                  Agregar esfuerzo de elemento",
+    "  columna esfuerzos-list [UN]     Listar esfuerzos",
+    "  columna story-forces <Story> <OC> <P> <VX> <VY>",
+    "                                  Story forces",
+    "  columna drifts <Story> <OC> <Drift>",
+    "                                  Story drifts",
+    "  columna alturas <Story> <Height>",
+    "                                  Alturas de entrepiso",
+    "  columna factor-r <R_X> <R_Y>   Factor R",
+    "  columna asignar <UN> <Nom> [Ult] Asignar diagramas a columna",
+    "  columna q                       Paso 1: Indice Q",
+    "  columna esbeltez                Paso 2: Momentos extremos",
+    "  columna segundo-orden           Paso 3: Segundo orden",
+    "  columna cm                      Paso 4: Factor Cm",
+    "  columna delta                   Paso 5: Factor delta",
+    "  columna esfuerzos-fin           Paso 6: Esfuerzos finales",
+    "  columna mn                      Paso 7: Momentos nominales",
+    "  columna estados                 Paso 8: Estados sismicos",
+    "  columna verificacion            Paso 9: Verificacion P-M",
+    "  columna resumen                 Resumen P-M",
+    "  columna diseno                  Ejecutar todos los pasos de diseño (todas las tablas)",
+    "  columna etabs-import [R_X R_Y]  Importar desde ETABS",
+    "  columna etabs-diseno [R_X R_Y]  Importar desde ETABS + diseno completo",
     "",
     "REPL: clear, cls            Limpiar pantalla",
     "",

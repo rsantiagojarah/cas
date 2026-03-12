@@ -1,0 +1,2 @@
+nombre,geometry_ok,thickness_msg,Mn,Mua,phi_Mn,flexion_ok,Mcr,cracking_ok,Vu_orig,Vu_cap,Vc,Vs,Vn,phi_Vn,corte_ok,vs_limit_ok,vn_limit_ok,rho_h,rho_v,borde_requiere,borde_metodo,borde_detalle,junta_ok,diseno_ok,piso,borde_requiere_piso,largo_borde
+PL-01_P8,True,t=20.0 cm >= t_min=15.0 cm  ->  CUMPLE,37503711.18,16166940.0,33753340.06,True,13470601.86,True,78139.2,181265.59,92744.81,148942.65,241687.46,181265.59,True,True,True,0.004433,0.0025,False,ESFUERZO,"{'sigma_max': 26.59, 'limit_ON': 42.0, 'limit_OFF': 31.5, 'largo_borde': None}",False,False,8,False,

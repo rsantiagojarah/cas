@@ -1,0 +1,2 @@
+nombre,geometry_ok,thickness_msg,Mn,Mua,phi_Mn,flexion_ok,Mcr,cracking_ok,Vu_orig,Vu_cap,Vc,Vs,Vn,phi_Vn,corte_ok,vs_limit_ok,vn_limit_ok,rho_h,rho_v,borde_requiere,borde_metodo,borde_detalle,junta_ok,diseno_ok
+Test_M2,True,t=30.0 cm >= t_min=15.0 cm  ->  CUMPLE,94143014.71,25000000.0,84728713.24,True,35166334.66,True,45000.0,169457.43,200798.41,157500.0,358298.41,268723.8,True,True,True,0.0025,0.0025,False,DEFORMACION,"{'c_base': 39.13, 'C_lim': 116.67, 'delta_u': 2.5, 'H_total': 350.0, 'ratio_du_H': 0.007143, 'ratio_min_ok': True, 'L_ext': None, 'largo_borde': None}",,True

@@ -1,0 +1,2 @@
+nombre,geometry_ok,thickness_msg,Mn,Mua,phi_Mn,flexion_ok,Mcr,cracking_ok,Vu_orig,Vu_cap,Vc,Vs,Vn,phi_Vn,corte_ok,vs_limit_ok,vn_limit_ok,rho_h,rho_v,borde_requiere,borde_metodo,borde_detalle,junta_ok,diseno_ok
+Muro_Critico,True,t=20.0 cm >= t_min=15.0 cm  ->  CUMPLE,18037058.82,18000000.0,16233352.94,False,0.0,True,60000.0,60123.53,46372.41,42000.0,88372.41,66279.3,True,True,True,0.0025,0.0025,True,DEFORMACION,"{'c_base': 53.39, 'C_lim': 51.85, 'delta_u': 1.8, 'H_total': 280.0, 'ratio_du_H': 0.006429, 'ratio_min_ok': True, 'L_ext': 200.0, 'largo_borde': 33.39}",,False

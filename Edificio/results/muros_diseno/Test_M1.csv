@@ -1,0 +1,2 @@
+nombre,geometry_ok,thickness_msg,Mn,Mua,phi_Mn,flexion_ok,Mcr,cracking_ok,Vu_orig,Vu_cap,Vc,Vs,Vn,phi_Vn,corte_ok,vs_limit_ok,vn_limit_ok,rho_h,rho_v,borde_requiere,borde_metodo,borde_detalle,junta_ok,diseno_ok
+Test_M1,True,t=25.0 cm >= t_min=15.0 cm  ->  CUMPLE,49026470.59,15000000.0,44123823.53,True,15988502.33,True,30000.0,98052.94,115931.01,105000.0,220931.01,165698.26,True,True,True,0.0025,0.0025,False,ESFUERZO,"{'sigma_max': 17.5, 'limit_ON': 42.0, 'limit_OFF': 31.5, 'largo_borde': None}",,True

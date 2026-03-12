@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 
 from axis.core.exceptions import ProjectNotFound
@@ -11,6 +12,24 @@ ELEMENT_FIELDNAMES: dict[str, list[str]] = {
     "vigas": ["nombre", "fc", "fy", "b", "h", "rec", "Mu", "Vu"],
     "columnas": ["nombre", "fc", "fy", "b", "h", "rec", "Pu", "Mux", "Muy"],
     "muros_nucleo": ["nivel", "hm", "Mu"],
+    "muros": [
+        "nombre", "hm", "lm", "t", "fc", "fy", "fyt",
+        "Pu", "Vu", "Mu", "delta_u", "c", "Mn_manual",
+    ],
+    "muros_def": ["nombre", "lm", "t", "fc", "fy", "fyt"],
+    "muros_pisos": ["muro", "piso", "hm", "Pu", "Vu", "Mu", "Mn_manual", "c"],
+    "col_props": [
+        "Story", "Unique_Name", "k", "lu", "I", "Ag", "Ec", "Bd", "fc", "fy",
+    ],
+    "col_esfuerzos": [
+        "Story", "Unique_Name", "Station", "Output_Case", "Step_Type", "P", "M2", "M3",
+    ],
+    "col_story_forces": ["Story", "Output_Case", "P", "VX", "VY"],
+    "col_drifts": ["Story", "Output_Case", "Drift"],
+    "col_alturas": ["Story", "Height"],
+    "col_factor_r": ["R_X", "R_Y"],
+    "col_asignaciones": ["Unique_Name", "Diagrama_Nominal", "Diagrama_Ultimo"],
+    "muro_asignaciones": ["muro", "Diagrama_Nominal", "Diagrama_Ultimo"],
 }
 
 
@@ -118,3 +137,22 @@ def read_results_csv(project_path: Path, filename: str) -> list[dict]:
         return []
     with open(csv_path, newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))
+
+
+def write_json(project_path: Path, filename: str, data: object) -> Path:
+    """Guarda datos JSON en elements/<filename>."""
+    elements_dir = _get_elements_path(project_path)
+    elements_dir.mkdir(parents=True, exist_ok=True)
+    json_path = elements_dir / filename
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    return json_path
+
+
+def read_json(project_path: Path, filename: str) -> object:
+    """Lee datos JSON desde elements/<filename>."""
+    json_path = _get_elements_path(project_path) / filename
+    if not json_path.exists():
+        return None
+    with open(json_path, "r", encoding="utf-8") as f:
+        return json.load(f)
