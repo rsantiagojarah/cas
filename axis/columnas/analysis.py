@@ -51,7 +51,9 @@ def compute_q_table(
     for d in drifts:
         key = (d.get("Story", ""), d.get("Output_Case", d.get("Output Case", "")))
         try:
-            drift_map[key] = float(d.get("Drift", 0))
+            val = float(d.get("Drift", 0))
+            if key not in drift_map or val > drift_map[key]:
+                drift_map[key] = val
         except (ValueError, TypeError):
             pass
 
@@ -242,6 +244,7 @@ def compute_second_order(
     Evalúa si se pueden ignorar efectos de segundo orden.
     Arriostrado: (k*lu)/r <= 34-12*(M1/M2) <= 40
     No arriostrado: (k*lu)/r < 22
+    Usa Ix para dirección X e Iy para dirección Y (compat: fallback a I).
     """
     props_map = {p["Unique_Name"]: p for p in props}
     q_map = {(r["Story"], r["Direction"]): r["Classification"] for r in q_results}
@@ -256,13 +259,18 @@ def compute_second_order(
 
         k = float(prop.get("k", 1.0))
         lu = float(prop.get("lu", 0.0))
-        I_val = float(prop.get("I", 0.0))
         Ag = float(prop.get("Ag", 0.0))
 
-        r = math.sqrt(I_val / Ag) if Ag > 0 and I_val >= 0 else 0.0
-        klu_r = (k * lu) / r if r > 1e-10 else 0.0
+        I_fallback = float(prop.get("I", 0.0))
+        Ix = float(prop.get("Ix", I_fallback))
+        Iy = float(prop.get("Iy", I_fallback))
+        I_map = {"X": Ix, "Y": Iy}
 
         for direction in ["X", "Y"]:
+            I_dir = I_map[direction]
+            r_dir = math.sqrt(I_dir / Ag) if Ag > 0 and I_dir >= 0 else 0.0
+            klu_r = (k * lu) / r_dir if r_dir > 1e-10 else 0.0
+
             m1 = float(row.get(f"M1_{direction}", 0))
             m2 = float(row.get(f"M2_{direction}", 0))
             ratio = m1 / m2 if abs(m2) > 1e-10 else 0.0
@@ -282,7 +290,8 @@ def compute_second_order(
                 "Direction": direction,
                 "Arriostrado": "Si" if es_arriostrado else "No",
                 "k": k,
-                "r": round(r, 4),
+                "I": round(I_dir, 4),
+                "r": round(r_dir, 4),
                 "lu": lu,
                 "M1/M2": round(ratio, 4),
                 "34-12(M1/M2)": round(formula, 2),
@@ -405,10 +414,11 @@ def compute_delta(
     segundo_orden: list[dict],
 ) -> list[dict]:
     """
-    Calcula EI, Pc y delta por columna.
-    EI = (0.4*Ec*Ig)/(1+Bd)
+    Calcula EI, Pc y delta por columna y dirección.
+    EI_X = (0.4*Ec*Ix)/(1+Bd),  EI_Y = (0.4*Ec*Iy)/(1+Bd)
     Pc = pi²*EI/(k*lu)²
     delta = Cm/(1-0.75*Pu/Pc) >= 1.0
+    Usa Ix para dirección X, Iy para dirección Y (compat: fallback a I).
     """
     cm_map = {r["Unique_Name"]: r for r in cm_results}
     pu_map = _calc_pu_max(esfuerzos)
@@ -423,20 +433,25 @@ def compute_delta(
         un = prop["Unique_Name"]
         story = prop.get("Story", "")
         ec = float(prop.get("Ec", 0))
-        ig = float(prop.get("I", 0))
         bd = float(prop.get("Bd", 0.5))
         k = float(prop.get("k", 1.0))
         lu = float(prop.get("lu", 0))
+
+        I_fallback = float(prop.get("I", 0))
+        Ix = float(prop.get("Ix", I_fallback))
+        Iy = float(prop.get("Iy", I_fallback))
 
         pu = pu_map.get(un, 0.0)
         cm_row = cm_map.get(un, {})
         cm_x = float(cm_row.get("Cm_X", 1.0))
         cm_y = float(cm_row.get("Cm_Y", 1.0))
 
-        ei = _calc_ei(ec, ig, bd)
-        pc = _calc_pc(ei, k, lu)
-        delta_x = _calc_delta(cm_x, pu, pc)
-        delta_y = _calc_delta(cm_y, pu, pc)
+        ei_x = _calc_ei(ec, Ix, bd)
+        ei_y = _calc_ei(ec, Iy, bd)
+        pc_x = _calc_pc(ei_x, k, lu)
+        pc_y = _calc_pc(ei_y, k, lu)
+        delta_x = _calc_delta(cm_x, pu, pc_x)
+        delta_y = _calc_delta(cm_y, pu, pc_y)
 
         if ignorar_map.get((story, un, "X"), False):
             delta_x = 1.0
@@ -447,10 +462,12 @@ def compute_delta(
             "Story": story,
             "Unique_Name": un,
             "Pu": round(pu, 2),
-            "EI": round(ei, 2),
-            "Pc": round(pc, 2),
+            "EI_X": round(ei_x, 2),
+            "Pc_X": round(pc_x, 2),
             "Cm_X": round(cm_x, 4),
             "Delta_X": round(delta_x, 4),
+            "EI_Y": round(ei_y, 2),
+            "Pc_Y": round(pc_y, 2),
             "Cm_Y": round(cm_y, 4),
             "Delta_Y": round(delta_y, 4),
         })

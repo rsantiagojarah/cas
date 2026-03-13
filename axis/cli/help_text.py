@@ -71,8 +71,8 @@ HELP_MAP = {
         "DISEÑO DE COLUMNAS DE CONCRETO ARMADO (E.060)\n"
         "\n"
         "DATOS DE ENTRADA:\n"
-        "cas columna props <Unique_Name> <k> <lu> <I> <Ag> <Ec> <Bd> [fc] [fy]\n"
-        "  Story desde esfuerzos. Si indica fc, Ec = 15000*sqrt(fc) (E.060).\n"
+        "cas columna props <Unique_Name> <k> <lu> <Ix> <Iy> <Ag> <Bd> [fc] [fy]\n"
+        "  Ec = 15000*sqrt(fc) (E.060). fc por defecto 210. Una inercia: <UN> <k> <lu> <I> <Ag> <Bd> [fc] [fy].\n"
         "cas columna props-list              Listar propiedades.\n"
         "cas columna props-remove <UN>       Borrar propiedades de una columna.\n"
         "cas columna esfuerzos <Story> <UN> <Station> <OC> <ST> <P> <M2> <M3>\n"
@@ -205,8 +205,8 @@ HELP_LINES = [
     "  sismo separacion <h> [da db]                    Separación edificios",
     "",
     "Diseno de Columnas (E.060):",
-    "  columna props <Unique_Name> <k> <lu> <I> <Ag> <Ec> <Bd> [fc] [fy]",
-    "                                  Propiedades (Story desde esfuerzos)",
+    "  columna props <UN> <k> <lu> <Ix> <Iy> <Ag> <Bd> [fc] [fy]",
+    "                                  Propiedades (Ec=15000*sqrt(fc), fc def. 210)",
     "  columna props-list              Listar propiedades",
     "  columna props-remove <UN>       Borrar propiedades de columna",
     "  columna esfuerzos <Story> <UN> <Station> <OC> <ST> <P> <M2> <M3>",

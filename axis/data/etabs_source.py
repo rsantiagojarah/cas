@@ -67,9 +67,15 @@ class EtabsSource(DataSource):
         self,
         r: float,
         material: str,
+        factor_drift: float = 0.75,
         log: bool = True,
     ) -> Optional[dict[str, Any]]:
-        return distorsion_admisible_etabs(r=r, material=material, log=log)
+        return distorsion_admisible_etabs(
+            r=r,
+            material=material,
+            factor_drift=factor_drift,
+            log=log,
+        )
 
     def disponible(self) -> bool:
         if not verificar_etabs_disponible():

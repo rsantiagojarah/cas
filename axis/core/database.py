@@ -19,7 +19,7 @@ ELEMENT_FIELDNAMES: dict[str, list[str]] = {
     "muros_def": ["nombre", "lm", "t", "fc", "fy", "fyt"],
     "muros_pisos": ["muro", "piso", "hm", "Pu", "Vu", "Mu", "Mn_manual", "c"],
     "col_props": [
-        "Story", "Unique_Name", "k", "lu", "I", "Ag", "Ec", "Bd", "fc", "fy",
+        "Story", "Unique_Name", "k", "lu", "Ix", "Iy", "Ag", "Ec", "Bd", "fc", "fy",
     ],
     "col_esfuerzos": [
         "Story", "Unique_Name", "Station", "Output_Case", "Step_Type", "P", "M2", "M3",

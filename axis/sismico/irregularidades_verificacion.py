@@ -262,13 +262,27 @@ def verificar_masa(peso_i: float, peso_adyacente: float) -> dict:
     return {"existe": ratio > 1.5, "ratio": round(ratio, 4)}
 
 
-def verificar_masa_todos(pesos: list[float]) -> list[dict]:
-    """Verifica irregularidad de masa para todos los pisos. pesos: [P1 P2 ... Pn]."""
+def verificar_masa_todos(pesos: list[float], hay_sotano: bool = False) -> list[dict]:
+    """
+    Verifica irregularidad de masa para todos los pisos. pesos: [P1 P2 ... Pn].
+    Si hay_sotano=True, el primer piso (sótano) no aplica criterio (Tabla 8)
+    y no se usa como adyacente para el piso superior.
+    """
     ps = [float(p) for p in pesos]
     if len(ps) < 2:
         return []
     resultados: list[dict] = []
     for i in range(len(ps)):
+        # Sótano (primer piso): no aplica criterio (Tabla 8).
+        if hay_sotano and i == 0:
+            resultados.append({
+                "piso": i + 1,
+                "peso": ps[i],
+                "existe": False,
+                "ratio": None,
+                "aplica": False,
+            })
+            continue
         # Azotea: no aplica criterio de irregularidad de masa (Tabla 8).
         if i == len(ps) - 1:
             resultados.append({
@@ -281,11 +295,12 @@ def verificar_masa_todos(pesos: list[float]) -> list[dict]:
             continue
         existe = False
         ratio = None
-        if i > 0 and ps[i - 1] > 0:
+        # Comparar con piso inferior (no usar sótano como adyacente).
+        if i > 0 and ps[i - 1] > 0 and not (hay_sotano and i == 1):
             r = ps[i] / ps[i - 1]
             if r > 1.5:
                 existe = True
-            ratio = round(r, 4) if ratio is None else ratio
+            ratio = round(r, 4)
         # No comparar con azotea (ultimo piso).
         if i < len(ps) - 2 and ps[i + 1] > 0:
             r = ps[i] / ps[i + 1]

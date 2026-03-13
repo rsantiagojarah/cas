@@ -151,10 +151,12 @@ def handle_diagrama_plot(args: list[str]) -> str:
         archivo_comb = args[i]
 
     diagramas = read_json(pp, DIAGRAMAS_JSON) or {}
-    # Si nombre es un muro con asignación, usar el diagrama asignado
-    asignaciones = read_csv(pp, "muro_asignaciones")
-    asig_muro = next((a for a in asignaciones if (a.get("muro") or "").strip() == nombre), None)
+    # Si nombre es un muro con asignación o una columna (Unique_Name), usar el diagrama asignado
+    asignaciones_muro = read_csv(pp, "muro_asignaciones")
+    asig_muro = next((a for a in asignaciones_muro if (a.get("muro") or "").strip() == nombre), None)
+    col_un_set = None
     if asig_muro:
+        # Caso muro: se usa su diagrama y luego se buscarán combinaciones en muros_multi
         nom_sec = (asig_muro.get("Diagrama_Nominal") or "").strip()
         ult_sec = (asig_muro.get("Diagrama_Ultimo") or "").strip() or nom_sec
         if nom_sec or ult_sec:
@@ -162,7 +164,27 @@ def handle_diagrama_plot(args: list[str]) -> str:
         else:
             section_name = nombre
     else:
-        section_name = nombre
+        # Caso columna: nombre es el Unique_Name de la columna
+        try:
+            asignaciones_col = read_csv(pp, "col_asignaciones")
+        except Exception:
+            asignaciones_col = []
+        asig_col = next(
+            (a for a in asignaciones_col if (a.get("Unique_Name") or "").strip() == nombre),
+            None,
+        )
+        if asig_col:
+            nom_sec = (asig_col.get("Diagrama_Nominal") or "").strip()
+            ult_sec = (asig_col.get("Diagrama_Ultimo") or "").strip() or nom_sec
+            if nom_sec or ult_sec:
+                section_name = ult_sec if tipo == "ultimo" else (nom_sec or ult_sec)
+            else:
+                section_name = nombre
+            # Guardar el Unique_Name para graficar solo sus esfuerzos
+            col_un_set = {nombre}
+        else:
+            # Nombre es una sección genérica (muro o columna)
+            section_name = nombre
     key = f"{section_name}_{tipo}"
     puntos = diagramas.get(key)
     if not puntos or not isinstance(puntos, list):
@@ -171,8 +193,9 @@ def handle_diagrama_plot(args: list[str]) -> str:
             "Use 'cas diagrama list' y 'cas muro asignar' si es un muro.")
 
     puntos_esfuerzo = None
-    # Combinaciones guardadas de ETABS (TABLA 1) para este muro
+    # Combinaciones / esfuerzos para graficar puntos sobre la superficie
     if not archivo_comb:
+        # 1) Muros: combinaciones ETABS guardadas en muros_multi/<muro>_combinaciones.csv
         comb_path = f"muros_multi/{_sanitize(nombre)}_combinaciones.csv"
         comb_rows = read_results_csv(pp, comb_path)
         if comb_rows:
@@ -180,6 +203,34 @@ def handle_diagrama_plot(args: list[str]) -> str:
                 {"P": float(r.get("P", 0)), "M2": float(r.get("M2", 0)), "M3": float(r.get("M3", 0))}
                 for r in comb_rows
             ]
+        else:
+            # 2) Columnas: esfuerzos finales amplificados
+            try:
+                esf_fin = read_results_csv(pp, "columnas/esfuerzos_finales.csv")
+                col_asig = read_csv(pp, "col_asignaciones")
+            except Exception:
+                esf_fin, col_asig = [], []
+            if esf_fin and col_asig:
+                # a) Si se pasó un Unique_Name de columna (col_un_set definido), usar solo esa columna
+                if col_un_set:
+                    un_cols = col_un_set
+                else:
+                    # b) Si se pasó una sección, usar todas las columnas que tengan asignado este diagrama
+                    un_cols = {
+                        (a.get("Unique_Name") or "").strip()
+                        for a in col_asig
+                        if (a.get("Diagrama_Ultimo") or a.get("Diagrama_Nominal") or "").strip() == section_name
+                    }
+                if un_cols:
+                    puntos_esfuerzo = [
+                        {
+                            "P": float(r.get("P", 0)),
+                            "M2": float(r.get("M2", 0)),
+                            "M3": float(r.get("M3", 0)),
+                        }
+                        for r in esf_fin
+                        if (r.get("Unique_Name") or "").strip() in un_cols
+                    ] or None
     if archivo_comb:
         path_comb = Path(archivo_comb)
         if not path_comb.is_absolute():

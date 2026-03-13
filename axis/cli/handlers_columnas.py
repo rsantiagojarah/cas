@@ -103,66 +103,162 @@ def _is_numeric(s: str) -> bool:
         return False
 
 
+def _normalize_col_props_rows(rows: list[dict], fieldnames: list[str]) -> None:
+    """Migra columna antigua 'I' a Ix/Iy y deja solo claves en fieldnames (in-place)."""
+    for r in rows:
+        if "I" in r:
+            try:
+                i_val = float(r["I"])
+            except (TypeError, ValueError):
+                i_val = 0
+            if not str(r.get("Ix") or "").strip():
+                r["Ix"] = i_val
+            if not str(r.get("Iy") or "").strip():
+                r["Iy"] = i_val
+            del r["I"]
+        for k in list(r.keys()):
+            if k not in fieldnames:
+                del r[k]
+
+
 def handle_columna_props(args: list[str]) -> str:
-    """cas columna props <Unique_Name> <k> <lu> <I> <Ag> <Ec> <Bd> [fc] [fy]
-    Story se obtiene de los esfuerzos importados (etabs-import). Tambien acepta forma antigua:
-    cas columna props <Story> <Unique_Name> <k> <lu> ...
+    """cas columna props <Unique_Name> <k> <lu> <Ix> <Iy> <Ag> <Bd> [fc] [fy]
+    Ec se calcula segun E.060: Ec = 15000*sqrt(fc). Default fc=210 kg/cm2.
+    Story desde esfuerzos (etabs-import). Forma antigua: <Story> <Unique_Name> ...
+    Si solo se pasa una inercia (6 numeros tras UN), se usa Ix=Iy.
     """
     pp = _project()
-    # Forma nueva: Unique_Name, k, lu, I, Ag, Ec, Bd, [fc], [fy] (7-9 args)
-    # Forma antigua: Story, Unique_Name, k, lu, I, Ag, Ec, Bd, [fc], [fy] (8-10 args)
-    if len(args) < 7:
+    if len(args) < 6:
         raise InvalidInput(
-            "Uso: cas columna props <Unique_Name> <k> <lu> <I> <Ag> <Ec> <Bd> [fc] [fy]\n"
-            "  Story desde esfuerzos. Si indica fc, Ec = 15000*sqrt(fc) (E.060).\n"
-            "  k, lu: cm, I: cm4, Ag: cm2, Ec: kg/cm2, Bd: adimensional.")
+            "Uso: cas columna props <Unique_Name> <k> <lu> <Ix> <Iy> <Ag> <Bd> [fc] [fy]\n"
+            "  Ec = 15000*sqrt(fc) (E.060). fc por defecto 210 kg/cm2.\n"
+            "  k, lu: cm; Ix/Iy: cm4; Ag: cm2; Bd: adimensional.\n"
+            "  Una sola inercia: <UN> <k> <lu> <I> <Ag> <Bd> [fc] [fy].")
     try:
+        # Forma con Story explícito: Story, UN, k, lu, ...
         if len(args) >= 8 and not _is_numeric(args[1]) and _is_numeric(args[2]):
             story = args[0]
             un = args[1]
-            k = float(args[2]); lu = float(args[3])
-            I_val = float(args[4]); Ag = float(args[5])
-            Ec = float(args[6]); Bd = float(args[7])
-            fc = float(args[8]) if len(args) > 8 else 210.0
-            fy = float(args[9]) if len(args) > 9 else 4200.0
-            if len(args) > 8 and fc > 0:
-                Ec = _ec_from_fc(fc)
+            k = float(args[2])
+            lu = float(args[3])
+            if len(args) >= 10:
+                # Story, UN, k, lu, Ix, Iy, Ag, Bd, fc, [fy]
+                Ix = float(args[4])
+                Iy = float(args[5])
+                Ag = float(args[6])
+                Bd = float(args[7])
+                fc = float(args[8]) if len(args) > 8 else 210.0
+                fy = float(args[9]) if len(args) > 9 else 4200.0
+            elif len(args) >= 9:
+                # Story, UN, k, lu, Ix, Iy, Ag, Bd, fc
+                Ix = float(args[4])
+                Iy = float(args[5])
+                Ag = float(args[6])
+                Bd = float(args[7])
+                fc = float(args[8])
+                fy = float(args[9]) if len(args) > 9 else 4200.0
+            elif len(args) == 8:
+                # Story, UN, k, lu, Ix, Iy, Ag, Bd (fc=210)
+                Ix = float(args[4])
+                Iy = float(args[5])
+                Ag = float(args[6])
+                Bd = float(args[7])
+                fc = 210.0
+                fy = 4200.0
+            else:
+                # 7 args: Story, UN, k, lu, I, Ag, Bd
+                I_val = float(args[4])
+                Ix = I_val
+                Iy = I_val
+                Ag = float(args[5])
+                Bd = float(args[6])
+                fc = 210.0
+                fy = 4200.0
+            Ec = _ec_from_fc(fc)
         else:
+            # Forma sin Story: UN, k, lu, ...
             un = args[0]
             story = _story_from_esfuerzos(pp, un)
-            k = float(args[1]); lu = float(args[2])
-            I_val = float(args[3]); Ag = float(args[4])
-            Ec = float(args[5]); Bd = float(args[6])
-            fc = float(args[7]) if len(args) > 7 else 210.0
-            fy = float(args[8]) if len(args) > 8 else 4200.0
-            if len(args) > 7 and fc > 0:
-                Ec = _ec_from_fc(fc)
+            if len(args) >= 9:
+                # UN, k, lu, Ix, Iy, Ag, Bd, fc, [fy]
+                k = float(args[1])
+                lu = float(args[2])
+                Ix = float(args[3])
+                Iy = float(args[4])
+                Ag = float(args[5])
+                Bd = float(args[6])
+                fc = float(args[7]) if len(args) > 7 else 210.0
+                fy = float(args[8]) if len(args) > 8 else 4200.0
+            elif len(args) >= 8:
+                # UN, k, lu, Ix, Iy, Ag, Bd, [fc]
+                k = float(args[1])
+                lu = float(args[2])
+                Ix = float(args[3])
+                Iy = float(args[4])
+                Ag = float(args[5])
+                Bd = float(args[6])
+                fc = float(args[7]) if len(args) > 7 else 210.0
+                fy = float(args[8]) if len(args) > 8 else 4200.0
+            elif len(args) >= 7:
+                # UN, k, lu, I, Ag, Bd, fc (una inercia)
+                k = float(args[1])
+                lu = float(args[2])
+                I_val = float(args[3])
+                Ix = I_val
+                Iy = I_val
+                Ag = float(args[4])
+                Bd = float(args[5])
+                fc = float(args[6]) if len(args) > 6 else 210.0
+                fy = float(args[7]) if len(args) > 7 else 4200.0
+            else:
+                # 6 args: UN, k, lu, I, Ag, Bd
+                k = float(args[1])
+                lu = float(args[2])
+                I_val = float(args[3])
+                Ix = I_val
+                Iy = I_val
+                Ag = float(args[4])
+                Bd = float(args[5])
+                fc = 210.0
+                fy = 4200.0
+            Ec = _ec_from_fc(fc)
     except ValueError:
         raise InvalidInput("Parametros numericos invalidos.")
 
     row = {
-        "Story": story, "Unique_Name": un,
-        "k": k, "lu": lu, "I": I_val, "Ag": Ag,
-        "Ec": Ec, "Bd": Bd, "fc": fc, "fy": fy,
+        "Story": story,
+        "Unique_Name": un,
+        "k": k,
+        "lu": lu,
+        "Ix": Ix,
+        "Iy": Iy,
+        "Ag": Ag,
+        "Ec": Ec,
+        "Bd": Bd,
+        "fc": fc,
+        "fy": fy,
     }
 
     existing = read_csv(pp, "col_props")
+    fieldnames = ELEMENT_FIELDNAMES["col_props"]
+    _normalize_col_props_rows(existing, fieldnames)
     idx = next((i for i, r in enumerate(existing)
                 if r.get("Unique_Name") == un and r.get("Story") == story), None)
+    row_clean = {k: row.get(k) for k in fieldnames}
     if idx is not None:
-        existing[idx] = row
+        existing[idx] = row_clean
         msg = f"Propiedades de '{un}' (Story={story or '(sin story)'}) actualizadas."
     else:
-        existing.append(row)
+        existing.append(row_clean)
         msg = f"Propiedades de '{un}' (Story={story or '(sin story)'}) agregadas."
     if not story:
         msg += " (Story no hallado en esfuerzos; importe con etabs-import o agregue esfuerzos primero.)"
 
-    write_csv(pp, existing, "col_props", ELEMENT_FIELDNAMES["col_props"])
+    write_csv(pp, existing, "col_props", fieldnames)
 
     for i, r in enumerate(existing):
         r["N"] = str(i + 1)
-    cols = ["N", "Story", "Unique_Name", "k", "lu", "I", "Ag", "Ec", "Bd"]
+    cols = ["N", "Story", "Unique_Name", "k", "lu", "Ix", "Iy", "Ag", "Ec", "Bd"]
     return msg + "\n\n" + format_table(existing, columns=cols)
 
 
@@ -173,10 +269,12 @@ def handle_columna_props_remove(args: list[str]) -> str:
         raise InvalidInput("Uso: cas columna props-remove <Unique_Name>")
     un = args[0].strip()
     existing = read_csv(pp, "col_props")
+    fieldnames = ELEMENT_FIELDNAMES["col_props"]
+    _normalize_col_props_rows(existing, fieldnames)
     new_rows = [r for r in existing if str(r.get("Unique_Name", "")).strip() != un]
     if len(new_rows) == len(existing):
         raise InvalidInput(f"No hay propiedades para la columna '{un}'.")
-    write_csv(pp, new_rows, "col_props", ELEMENT_FIELDNAMES["col_props"])
+    write_csv(pp, new_rows, "col_props", fieldnames)
     return f"Propiedades de la columna '{un}' eliminadas."
 
 
@@ -188,7 +286,7 @@ def handle_columna_props_list(args: list[str]) -> str:
         return "No hay propiedades de columnas. Use 'cas columna props ...'."
     for i, r in enumerate(rows):
         r["N"] = str(i + 1)
-    cols = ["N", "Story", "Unique_Name", "k", "lu", "I", "Ag", "Ec", "Bd", "fc", "fy"]
+    cols = ["N", "Story", "Unique_Name", "k", "lu", "Ix", "Iy", "Ag", "Ec", "Bd", "fc", "fy"]
     return "Propiedades de columnas\n\n" + format_table(rows, columns=cols)
 
 
@@ -480,7 +578,9 @@ def _etabs_story_forces() -> list[dict]:
 
 
 def _etabs_story_drifts() -> list[dict]:
-    """Lee Story Drifts desde ETABS (SPX, SPY)."""
+    """Lee Story Drifts desde ETABS: solo SPX con Direction X y SPY con Direction Y.
+    Por cada (Story, Output_Case) se guarda un solo valor: el max(Drift).
+    """
     if pd is None:
         raise InvalidInput("Se requiere pandas.")
     df = get_table("Story Drifts", log=True, use_cache=False)
@@ -491,13 +591,19 @@ def _etabs_story_drifts() -> list[dict]:
     c_story = _find_col(cols, ["Story", "StoryLabel"], ["story"])
     c_case = _find_col(cols, ["Output Case", "OutputCase"], ["output", "case"])
     c_drift = _find_col(cols, ["Drift", "Drift1"], ["drift"])
+    c_dir = _find_col(cols, ["Direction", "Dir"], ["direction", "dir"])
     if not c_story or not c_case or not c_drift:
         raise InvalidInput("Story Drifts no tiene Story, Output Case o Drift.")
     df["_oc"] = df[c_case].astype(str).str.strip().str.upper()
     df = df[df["_oc"].isin(["SPX", "SPY"])].copy()
+    if c_dir:
+        df["_dir"] = df[c_dir].astype(str).str.strip().str.upper()
+        df = df[((df["_oc"] == "SPX") & (df["_dir"] == "X")) | ((df["_oc"] == "SPY") & (df["_dir"] == "Y"))].copy()
+        df = df.drop(columns=["_dir"], errors="ignore")
     df = df.drop(columns=["_oc"], errors="ignore")
     df = df.rename(columns={c_story: "Story", c_case: "Output_Case", c_drift: "Drift"})
     df["Drift"] = pd.to_numeric(df["Drift"], errors="coerce")
+    df = df.groupby(["Story", "Output_Case"], as_index=False).agg({"Drift": "max"}).reset_index(drop=True)
     return df[["Story", "Output_Case", "Drift"]].to_dict("records")
 
 
@@ -666,21 +772,29 @@ def handle_columna_q(args: list[str]) -> str:
 # ═══════════════════════════════════════════════════════════════════════
 
 def handle_columna_esbeltez(args: list[str]) -> str:
-    """cas columna esbeltez -> Calcula M1, M2 y curvatura por columna."""
+    """cas columna esbeltez -> Calcula M1, M2 y curvatura por columna.
+    Solo se listan columnas que tienen propiedades definidas (col_props).
+    """
     pp = _project()
     esfuerzos = read_csv(pp, "col_esfuerzos")
     alturas = read_csv(pp, "col_alturas")
+    props = read_csv(pp, "col_props")
 
     if not esfuerzos:
         raise InvalidInput("Sin esfuerzos. Use 'cas columna esfuerzos ...'.")
     if not alturas:
         raise InvalidInput("Sin alturas. Use 'cas columna alturas ...'.")
+    if not props:
+        raise InvalidInput("Sin propiedades de columnas. Use 'cas columna props ...'.")
+
+    props_unique = {str(r.get("Unique_Name", "")).strip() for r in props}
 
     from axis.columnas.analysis import compute_slenderness
     results = compute_slenderness(esfuerzos, alturas)
+    results = [r for r in results if str(r.get("Unique_Name", "")).strip() in props_unique]
 
     if not results:
-        return "No se pudieron calcular momentos extremos."
+        return "No se pudieron calcular momentos extremos para columnas con propiedades."
 
     _col_results_dir(pp)
     write_results_csv(pp, "columnas/esbeltez.csv", results)
@@ -726,7 +840,7 @@ def handle_columna_segundo_orden(args: list[str]) -> str:
     for i, r in enumerate(results):
         r["N"] = str(i + 1)
     cols = ["N", "Story", "Unique_Name", "Direction", "Arriostrado",
-            "k", "r", "lu", "M1/M2", "34-12(M1/M2)", "(k*lu)/r", "Ignorar_2do_Orden"]
+            "k", "I", "r", "lu", "M1/M2", "34-12(M1/M2)", "(k*lu)/r", "Ignorar_2do_Orden"]
     return (
         "PASO 3: Efectos de Segundo Orden\n"
         "  Arriostrado: (k*lu)/r <= 34-12*(M1/M2) <= 40\n"
@@ -741,21 +855,26 @@ def handle_columna_segundo_orden(args: list[str]) -> str:
 # ═══════════════════════════════════════════════════════════════════════
 
 def handle_columna_cm(args: list[str]) -> str:
-    """cas columna cm -> Calcula factor Cm por columna."""
+    """cas columna cm -> Calcula factor Cm por columna. Solo columnas con propiedades."""
     pp = _project()
     esfuerzos = read_csv(pp, "col_esfuerzos")
     segundo_orden = read_results_csv(pp, "columnas/segundo_orden.csv")
+    props = read_csv(pp, "col_props")
 
     if not esfuerzos:
         raise InvalidInput("Sin esfuerzos.")
     if not segundo_orden:
         raise InvalidInput("Sin datos de segundo orden. Ejecute 'cas columna segundo-orden'.")
+    if not props:
+        raise InvalidInput("Sin propiedades. Use 'cas columna props ...'.")
 
+    props_unique = {str(r.get("Unique_Name", "")).strip() for r in props}
     from axis.columnas.analysis import compute_cm
     results = compute_cm(esfuerzos, segundo_orden)
+    results = [r for r in results if str(r.get("Unique_Name", "")).strip() in props_unique]
 
     if not results:
-        return "No se pudieron calcular factores Cm."
+        return "No se pudieron calcular factores Cm para columnas con propiedades."
 
     write_results_csv(pp, "columnas/cm.csv", results)
 
@@ -801,10 +920,12 @@ def handle_columna_delta(args: list[str]) -> str:
 
     for i, r in enumerate(results):
         r["N"] = str(i + 1)
-    cols = ["N", "Story", "Unique_Name", "Pu", "EI", "Pc", "Cm_X", "Delta_X", "Cm_Y", "Delta_Y"]
+    cols = ["N", "Story", "Unique_Name", "Pu",
+            "EI_X", "Pc_X", "Cm_X", "Delta_X",
+            "EI_Y", "Pc_Y", "Cm_Y", "Delta_Y"]
     return (
         "PASO 5: Factor de Amplificacion Delta\n"
-        "  EI = (0.4*Ec*Ig)/(1+Bd)\n"
+        "  EI = (0.4*Ec*I)/(1+Bd)  [Ix para dir X, Iy para dir Y]\n"
         "  Pc = pi^2*EI/(k*lu)^2\n"
         "  delta = Cm/(1-0.75*Pu/Pc) >= 1.0\n\n"
         + format_table(results, columns=cols)
@@ -817,21 +938,26 @@ def handle_columna_delta(args: list[str]) -> str:
 # ═══════════════════════════════════════════════════════════════════════
 
 def handle_columna_esfuerzos_finales(args: list[str]) -> str:
-    """cas columna esfuerzos-fin -> Amplifica momentos con delta."""
+    """cas columna esfuerzos-fin -> Amplifica momentos con delta. Solo columnas con propiedades."""
     pp = _project()
     esfuerzos = read_csv(pp, "col_esfuerzos")
     delta_results = read_results_csv(pp, "columnas/delta.csv")
+    props = read_csv(pp, "col_props")
 
     if not esfuerzos:
         raise InvalidInput("Sin esfuerzos.")
     if not delta_results:
         raise InvalidInput("Sin datos de delta. Ejecute 'cas columna delta'.")
+    if not props:
+        raise InvalidInput("Sin propiedades. Use 'cas columna props ...'.")
 
+    props_unique = {str(r.get("Unique_Name", "")).strip() for r in props}
     from axis.columnas.analysis import compute_final_forces
     results = compute_final_forces(esfuerzos, delta_results)
+    results = [r for r in results if str(r.get("Unique_Name", "")).strip() in props_unique]
 
     if not results:
-        return "No se pudieron calcular esfuerzos finales."
+        return "No se pudieron calcular esfuerzos finales para columnas con propiedades."
 
     write_results_csv(pp, "columnas/esfuerzos_finales.csv", results)
 
@@ -852,23 +978,28 @@ def handle_columna_esfuerzos_finales(args: list[str]) -> str:
 # ═══════════════════════════════════════════════════════════════════════
 
 def handle_columna_mn(args: list[str]) -> str:
-    """cas columna mn -> Calcula momentos nominales Mn2 y Mn3."""
+    """cas columna mn -> Calcula momentos nominales Mn2 y Mn3. Solo columnas con propiedades."""
     pp = _project()
     esfuerzos_fin = read_results_csv(pp, "columnas/esfuerzos_finales.csv")
     asignaciones = read_csv(pp, "col_asignaciones")
     diagramas = read_json(pp, "diagramas.json") or {}
+    props = read_csv(pp, "col_props")
 
     if not esfuerzos_fin:
         raise InvalidInput("Sin esfuerzos finales. Ejecute 'cas columna esfuerzos-fin'.")
     if not asignaciones:
         raise InvalidInput("Sin asignaciones de diagramas. Use 'cas columna asignar ...'.")
+    if not props:
+        raise InvalidInput("Sin propiedades. Use 'cas columna props ...'.")
 
+    props_unique = {str(r.get("Unique_Name", "")).strip() for r in props}
     nominales = {k.replace("_nominal", ""): v for k, v in diagramas.items() if "_nominal" in k}
     if not nominales:
         raise InvalidInput("Sin diagramas nominales. Use 'cas columna diagrama ...'.")
 
     from axis.columnas.analysis import compute_nominal_moments
     results = compute_nominal_moments(esfuerzos_fin, asignaciones, nominales)
+    results = [r for r in results if str(r.get("Unique_Name", "")).strip() in props_unique]
 
     if not results:
         un_esf = {str(r.get("Unique_Name", "")).strip() for r in esfuerzos_fin}
@@ -937,17 +1068,21 @@ def handle_columna_estados(args: list[str]) -> str:
 # ═══════════════════════════════════════════════════════════════════════
 
 def handle_columna_verificacion(args: list[str]) -> str:
-    """cas columna verificacion -> Verificacion P-M con diagramas de interaccion."""
+    """cas columna verificacion -> Verificacion P-M. Solo columnas con propiedades."""
     pp = _project()
     esfuerzos_fin = read_results_csv(pp, "columnas/esfuerzos_finales.csv")
     asignaciones = read_csv(pp, "col_asignaciones")
     diagramas = read_json(pp, "diagramas.json") or {}
+    props = read_csv(pp, "col_props")
 
     if not esfuerzos_fin:
         raise InvalidInput("Sin esfuerzos finales. Ejecute 'cas columna esfuerzos-fin'.")
     if not asignaciones:
         raise InvalidInput("Sin asignaciones. Use 'cas columna asignar ...'.")
+    if not props:
+        raise InvalidInput("Sin propiedades. Use 'cas columna props ...'.")
 
+    props_unique = {str(r.get("Unique_Name", "")).strip() for r in props}
     nominales = {k.replace("_nominal", ""): v for k, v in diagramas.items() if "_nominal" in k}
     ultimos = {k.replace("_ultimo", ""): v for k, v in diagramas.items() if "_ultimo" in k}
 
@@ -956,6 +1091,7 @@ def handle_columna_verificacion(args: list[str]) -> str:
 
     from axis.columnas.analysis import compute_pm_verification
     results = compute_pm_verification(esfuerzos_fin, asignaciones, nominales, ultimos)
+    results = [r for r in results if str(r.get("Unique_Name", "")).strip() in props_unique]
 
     if not results:
         return "No se pudieron generar resultados de verificacion P-M."
@@ -978,13 +1114,18 @@ def handle_columna_verificacion(args: list[str]) -> str:
 # ═══════════════════════════════════════════════════════════════════════
 
 def handle_columna_resumen(args: list[str]) -> str:
-    """cas columna resumen -> Resumen de verificacion P-M."""
+    """cas columna resumen -> Resumen de verificacion P-M. Solo columnas con propiedades."""
     pp = _project()
     verificacion = read_results_csv(pp, "columnas/verificacion_pm.csv")
+    props = read_csv(pp, "col_props")
 
     if not verificacion:
         raise InvalidInput("Sin resultados de verificacion. Ejecute 'cas columna verificacion'.")
+    if not props:
+        raise InvalidInput("Sin propiedades. Use 'cas columna props ...'.")
 
+    props_unique = {str(r.get("Unique_Name", "")).strip() for r in props}
+    verificacion = [r for r in verificacion if str(r.get("Unique_Name", "")).strip() in props_unique]
     from axis.columnas.analysis import compute_pm_summary
     results = compute_pm_summary(verificacion)
 
@@ -1036,7 +1177,8 @@ def handle_columna_diseno(args: list[str]) -> str:
             "Unique_Name",
             "k",
             "lu",
-            "I",
+            "Ix",
+            "Iy",
             "Ag",
             "Ec",
             "Bd",

@@ -33,6 +33,11 @@ def ejecutar_pasos_con_fuente(
     df_peso, tbl_est, tbl_din, cort, datos_cort, cl, dr, r, k.
     """
     r = coeficiente_reduccion_r(r0, ia, ip)
+    # Según E.030 Art. 31: si Ia o Ip son distintos de 1,
+    # la edificación se considera irregular para la verificación
+    # de desplazamientos laterales.
+    irregular = (ia != 1.0) or (ip != 1.0)
+    factor_drift = 0.85 if irregular else 0.75
     k = "x" if sentido == "X" else "y"
 
     res_per = source.get_periodo_fundamental(log=log)
@@ -60,7 +65,7 @@ def ejecutar_pasos_con_fuente(
     datos_cort = cort.get(k) if cort else None
 
     cl = source.get_clasificacion_sistema(log=log)
-    dr = source.get_distorsion(r, material, log=log)
+    dr = source.get_distorsion(r, material, factor_drift=factor_drift, log=log)
 
     return {
         "periodo": periodo,
@@ -77,6 +82,7 @@ def ejecutar_pasos_con_fuente(
         "dr": dr,
         "r": r,
         "k": k,
+        "factor_drift": factor_drift,
     }
 
 
