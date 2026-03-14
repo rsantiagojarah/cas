@@ -1,4 +1,12 @@
-"""Operación de diseño por flexión para vigas (E-060, criterio cuantía máxima)."""
+"""Operación de diseño por flexión para vigas y losas (E-060).
+
+Flujo de diseño utilizado:
+- Vigas: sección en flexión E.060 con criterio de cuantía máxima; VSR o VDR;
+  As y As' según necesidad; cuantía mínima por norma.
+- Losas: solo sección simplemente reforzada (sin acero en compresión);
+  cuantía mínima ρ_min = 0.0018; si a > a_max se indica con * y no se calcula As;
+  resultado: As req. = max(As por momento, As_min). Unidades: fc/fy kg/cm², b/h/rec cm, Mu Tn-m.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +20,7 @@ from axis.operations.flexion_calculos import (
     acero_vsr,
     acero_vdr,
     asmin,
+    asmin_losa,
     asmax_vsr,
     asmax_vdr,
 )
@@ -67,6 +76,50 @@ def _calcular_flexion(
     }
 
 
+def _calcular_flexion_losa(
+    nombre: str, fc: float, fy: float, b: float, h: float, rec: float, mu: float
+) -> dict:
+    """
+    Diseño por flexión de losa: solo sección simplemente reforzada (sin As').
+    Cuantía mínima 0.0018. Si a > a_max no se calcula y se indica supera acero máximo.
+    """
+    if fc <= 0 or fy <= 0 or b <= 0 or h <= 0 or rec <= 0 or mu <= 0:
+        raise InvalidInput("Todos los parámetros deben ser positivos")
+    if rec >= h:
+        raise InvalidInput("El recubrimiento debe ser menor que la altura total")
+
+    d = h - rec
+    mu_kgcm = mu * 1000 * 100
+    a_max = a_max_balanceada(d, fy, fc)
+
+    a = profundidad_bloque_compresion(d, mu_kgcm, fc, b)
+    if a > a_max:
+        asmin_val = asmin_losa(b, d)
+        asmax = asmax_vsr(fc, a_max, fy, b)
+        return {
+            "nombre": nombre,
+            "Mu": round(mu, 2),
+            "As": "-",
+            "Asmin": round(asmin_val, 2),
+            "Asmax": round(asmax, 2),
+            "As req.": "*",
+        }
+
+    as_req, _ = acero_vsr(mu_kgcm, d, a, fy)
+    asmin_val = asmin_losa(b, d)
+    asmax = asmax_vsr(fc, a_max, fy, b)
+    as_colocar = max(as_req, asmin_val)
+
+    return {
+        "nombre": nombre,
+        "Mu": round(mu, 2),
+        "As": round(as_req, 2),
+        "Asmin": round(asmin_val, 2),
+        "Asmax": round(asmax, 2),
+        "As req.": round(as_colocar, 2),
+    }
+
+
 @register("flexion", "viga")
 def flexion_viga(data: dict) -> dict:
     """
@@ -92,6 +145,39 @@ def flexion_viga(data: dict) -> dict:
         rec = to_float(fila.get("rec"))
         mu = to_float(fila.get("Mu"))
         res = _calcular_flexion(nombre, fc, fy, b, h, rec, mu)
+        resultados.append(res)
+
+    return {"resultados": resultados}
+
+
+@register("flexion", "losa")
+def flexion_losa(data: dict) -> dict:
+    """
+    Diseño por flexión de losa: flujo = (fc, fy, b, h, rec) + Mu por cada sección;
+    bloque Whitney; a vs a_max; As_req por VSR; As req. = max(As_req, 0.0018*b*d).
+    Data: {fc, fy, b, h, rec, Mu} o {losas: [{...}, ...]}.
+    """
+    if "losas" in data:
+        filas = data["losas"]
+    elif all(k in data for k in ("fc", "fy", "b", "h", "rec", "Mu")):
+        filas = [data]
+    else:
+        raise InvalidInput(
+            "Data debe tener fc, fy, b, h, rec, Mu o losas con lista de losas"
+        )
+
+    resultados = []
+    for i, fila in enumerate(filas):
+        nombre = fila.get("nombre") or f"Losa {i + 1}"
+        fc = to_float(fila.get("fc"))
+        fy = to_float(fila.get("fy"))
+        b = to_float(fila.get("b"))
+        h = to_float(fila.get("h"))
+        rec = to_float(fila.get("rec"))
+        mu = to_float(fila.get("Mu"))
+        res = _calcular_flexion_losa(nombre, fc, fy, b, h, rec, mu)
+        if "losa" in fila and fila.get("losa") != "":
+            res["losa"] = fila.get("losa")
         resultados.append(res)
 
     return {"resultados": resultados}

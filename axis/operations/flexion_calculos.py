@@ -64,12 +64,20 @@ def acero_vdr(
 
 def asmin(fc: float, b: float, d: float, fy: float) -> float:
     """
-    Acero mínimo (Art. 10.5.1 y Anexo II): Asmin = max(Asmin1, Asmin2).
+    Acero mínimo vigas (Art. 10.5.1 y Anexo II): Asmin = max(Asmin1, Asmin2).
     Asmin1 = 0.7*sqrt(fc)*b*d/fy [Ec. 10-3]; Asmin2 = 1.4*b*d/fy.
     """
     asmin1 = 0.7 * math.sqrt(fc) * b * d / fy
     asmin2 = 1.4 * b * d / fy
     return max(asmin1, asmin2)
+
+
+def asmin_losa(b: float, d: float) -> float:
+    """
+    Cuantía mínima a flexión para losas (E.060): rho_min = 0.0018.
+    Asmin = 0.0018 * b * d.
+    """
+    return 0.0018 * b * d
 
 
 def asmax_vsr(fc: float, a_max: float, fy: float, b: float) -> float:

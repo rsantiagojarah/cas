@@ -17,9 +17,23 @@ HELP_MAP = {
         "cas edit columna <param> <valor> [i1 i2 ...]  - Editar columna en varias vigas"
     ),
     "delete": "cas delete viga <i> [i2 i3 ...]\n  Eliminar viga(s) por índice.",
-    "flexion": "cas flexion viga\n  Diseño por flexión de vigas (usa elements/data.csv).",
-    "results": "cas results flexion | cas results cortante\n  Ver resultados en tabla.",
-    "cortante": "cas cortante viga\n  Diseño por cortante de vigas.",
+    "flexion": "cas flexion viga | cas flexion losa\n  Diseño por flexión (vigas o losas; losas: cuantía mín. 0.0018).",
+    "losa": (
+        "cas losa define [nombre] <fc> <fy> <b> <h> <rec>\n"
+        "  Definir una losa (varias si les pone nombre; fc/fy kg/cm², b/h/rec cm).\n"
+        "cas losa list\n"
+        "  Listar losas definidas.\n"
+        "cas losa delete <nombre|índice>\n"
+        "  Borrar una losa (y sus momentos).\n"
+        "cas losa momento add [nombre_losa] <nombre> <Mu>\n"
+        "  Añadir momento a la losa.\n"
+        "cas losa momento list [nombre_losa] | delete <i>\n"
+        "  Listar momentos (opcional por losa) o eliminar uno por índice.\n"
+        "cas losa cortante add [nombre_losa] <nombre> <Vu>  |  list [losa]  |  delete <i>\n"
+        "  Añadir/listar/eliminar cortantes por losa (Vu en Tn). Luego: cas cortante losa."
+    ),
+    "results": "cas results flexion [viga|losa] | cas results cortante\n  Ver resultados en tabla.",
+    "cortante": "cas cortante viga | cas cortante losa\n  Cortante vigas (estribos) o losas (solo Vu vs phi*Vc).",
     "muro": (
         "cas muro nucleo <nombre_muro> <L> <fy> <nivel> <hm> <Mu> [phi]\n"
         "  Predimensionamiento de acero en núcleos de muros (ingreso manual).\n"
@@ -151,15 +165,20 @@ HELP_LINES = [
     "  delete viga <i> [i2 i3 ...]",
     "",
     "Cálculos:",
-    "  flexion viga                    Diseño por flexión",
-    "  cortante viga                   Diseño por cortante",
+    "  flexion viga                    Diseño por flexión vigas",
+    "  flexion losa                    Diseño por flexión losas (ρ_min=0.0018)",
+    "  losa define [nombre] <fc> <fy> <b> <h> <rec>  Definir losa(s)",
+    "  losa list | delete <nombre|i>  Listar o borrar losas",
+    "  losa momento add [nombre_losa] <nombre> <Mu>  Momentos | list | delete <i>",
+    "  losa cortante add [nombre_losa] <nombre> <Vu>  Cortantes | list | delete <i>",
+    "  cortante viga | cortante losa  Diseño por cortante (vigas o losas)",
     "  muro nucleo <nombre> <L> <fy> <nivel> <hm> <Mu> [phi]",
     "                                  Predimensionamiento núcleo de muro (manual)",
     "  muro etabs <nombre> <L> <fy> <pier_name> [phi]",
     "                                  Predimensionamiento desde ETABS (Pier Forces)",
     "  muro list                        Listar muros predimensionados",
     "  muro delete <nombre>             Borrar resultados predimensionamiento",
-    "  results flexion                  Ver resultados flexión",
+    "  results flexion [viga|losa]      Ver resultados flexión",
     "  results cortante                 Ver resultados cortante",
     "",
     "Diseno de Muros (RNE E.060) - Piso unico:",

@@ -18,6 +18,31 @@ from axis.operations.cortante_calculos import (
 )
 
 
+def _calcular_cortante_losa(
+    nombre: str, fc: float, b: float, h: float, rec: float, vu_tn: float
+) -> dict:
+    """
+    Cortante en losa: sin estribos; solo se verifica Vu <= phi*Vc.
+    Vc = 0.53*sqrt(fc)*b*d (Art. 11.3.1), phi = 0.85.
+    """
+    vu_kg = vu_tn * 1000
+    if fc <= 0 or b <= 0 or h <= 0 or rec <= 0 or vu_tn < 0:
+        raise InvalidInput("Parámetros inválidos: verifique unidades y signos")
+    if rec >= h:
+        raise InvalidInput("El recubrimiento debe ser menor que la altura total")
+    d = h - rec
+    vc_kg = vc(fc, b, d)
+    phi_vc_tn = (PHI_CORTANTE * vc_kg) / 1000
+    cumple = vu_tn <= phi_vc_tn
+    return {
+        "nombre": nombre,
+        "Vu": round(vu_tn, 2),
+        "Vc": round(vc_kg / 1000, 2),
+        "phi_Vc": round(phi_vc_tn, 2),
+        "Cumple": "Sí" if cumple else "No",
+    }
+
+
 def _calcular_cortante(
     nombre: str, fc: float, fy: float, b: float, h: float, rec: float, vu_tn: float
 ) -> dict:
@@ -97,4 +122,27 @@ def cortante_viga(data: dict) -> dict:
         res = _calcular_cortante(nombre, fc, fy, b, h, rec, vu)
         resultados.append(res)
 
+    return {"resultados": resultados}
+
+
+@register("cortante", "losa")
+def cortante_losa(data: dict) -> dict:
+    """
+    Cortante en losa: sin estribos; solo Vu vs phi*Vc.
+    Data: {losas: [{fc, b, h, rec, nombre, Vu}, ...]}.
+    """
+    if "losas" not in data:
+        raise InvalidInput("Data debe tener 'losas' con lista de filas (fc, b, h, rec, nombre, Vu)")
+    resultados = []
+    for i, fila in enumerate(data["losas"]):
+        nombre = fila.get("nombre") or f"Losa {i + 1}"
+        fc = to_float(fila.get("fc"))
+        b = to_float(fila.get("b"))
+        h = to_float(fila.get("h"))
+        rec = to_float(fila.get("rec"))
+        vu = to_float(fila.get("Vu"), default=0.0)
+        res = _calcular_cortante_losa(nombre, fc, b, h, rec, vu)
+        if "losa" in fila and fila.get("losa") != "":
+            res["losa"] = fila.get("losa")
+        resultados.append(res)
     return {"resultados": resultados}

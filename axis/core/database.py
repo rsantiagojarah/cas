@@ -10,6 +10,10 @@ from axis.core.exceptions import ProjectNotFound
 
 ELEMENT_FIELDNAMES: dict[str, list[str]] = {
     "vigas": ["nombre", "fc", "fy", "b", "h", "rec", "Mu", "Vu"],
+    "losas": ["nombre", "fc", "fy", "b", "h", "rec", "Mu"],
+    "losa": ["nombre", "fc", "fy", "b", "h", "rec"],
+    "losa_momentos": ["losa", "nombre", "Mu"],
+    "losa_cortante": ["losa", "nombre", "Vu"],
     "columnas": ["nombre", "fc", "fy", "b", "h", "rec", "Pu", "Mux", "Muy"],
     "muros_nucleo": ["nivel", "hm", "Mu"],
     "muros": [
