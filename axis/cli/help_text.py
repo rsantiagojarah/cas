@@ -34,6 +34,21 @@ HELP_MAP = {
     ),
     "results": "cas results flexion [viga|losa] | cas results cortante\n  Ver resultados en tabla.",
     "cortante": "cas cortante viga | cas cortante losa\n  Cortante vigas (estribos) o losas (solo Vu vs phi*Vc).",
+    "lambda": (
+        "Factor λΔ deflexión diferida (E.060): λΔ = ξ/(1+50·ρ'), ρ'=As'/(b·d).\n"
+        "  cas lambda <b> <d> <As'> <xi>  Cálculo directo (b,d cm; As' cm²).\n"
+        "  cas lambda <elemento> <xi>  Usa b,d y As' de la sección centro (o apoyo si voladizo).\n"
+        "  xi: 3meses|6meses|12meses|5anos (o 1.0, 1.2, 1.4, 2.0)."
+    ),
+    "inercia": (
+        "Ie ponderado E.060 (deflexiones):\n"
+        "  cas inercia define <nombre> <caso> <b> <h> <d> <d'> <fc>\n"
+        "  cas inercia seccion add <elemento> <seccion> <As> <As'> <Ma>\n"
+        "  As = acero en TRACCION, As' = acero en COMPRESION (para esa sección).\n"
+        "  Apoyos: tracción arriba -> As=arriba, As'=abajo. Centro: tracción abajo -> As=abajo, As'=arriba.\n"
+        "  cas inercia seccion list [elemento] | delete <i> | list | delete <nombre> | calcular [nombre]\n"
+        "Verificación rápida: cas inercia fisurada <b> <d> <d'> <As> <As'> <n> [Ma Mcr Ig_m4]"
+    ),
     "muro": (
         "cas muro nucleo <nombre_muro> <L> <fy> <nivel> <hm> <Mu> [phi]\n"
         "  Predimensionamiento de acero en núcleos de muros (ingreso manual).\n"
@@ -172,6 +187,11 @@ HELP_LINES = [
     "  losa momento add [nombre_losa] <nombre> <Mu>  Momentos | list | delete <i>",
     "  losa cortante add [nombre_losa] <nombre> <Vu>  Cortantes | list | delete <i>",
     "  cortante viga | cortante losa  Diseño por cortante (vigas o losas)",
+    "  inercia define <nombre> <caso> b h d d' fc  Elemento Ie E.060",
+    "  inercia seccion add <elem> <seccion> As As' Ma  (b,h,d,d',fc del elemento)",
+    "  inercia calcular [nombre]  Ie por sección e Ie promedio",
+    "  lambda <b> <d> <As'> <xi>  o  lambda <elemento> <xi>  λΔ deflexión diferida",
+    "  inercia fisurada <b> <d> <d'> <As> <As'> <n> [Ma Mcr Ig_m4]  Verificación rápida Icr/Ie",
     "  muro nucleo <nombre> <L> <fy> <nivel> <hm> <Mu> [phi]",
     "                                  Predimensionamiento núcleo de muro (manual)",
     "  muro etabs <nombre> <L> <fy> <pier_name> [phi]",

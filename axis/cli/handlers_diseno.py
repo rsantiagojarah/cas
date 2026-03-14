@@ -441,3 +441,28 @@ def handle_results_cortante(args: list[str]) -> str:
         row["N"] = str(i + 1)
     cols = ["N"] + [k for k in rows[0].keys() if k != "N"]
     return "Cortante\n\n" + format_table(rows, columns=cols, header_map=CORTANTE_HEADER_MAP)
+
+
+def handle_inercia_fisurada(args: list[str]) -> str:
+    """cas inercia fisurada <b> <d> <d'> <As> <As'> <n> [Ma] [Mcr] [Ig_m4]"""
+    if len(args) < 6:
+        raise InvalidInput(
+            "Uso: cas inercia fisurada <b> <d> <d'> <As> <As'> <n>  [Ma Mcr Ig_m4]\n"
+            "  b,d,d' cm; As,As' cm²; n=Es/Ec. Opcional: Ma,Mcr (misma unidad), Ig_m4 para Ie."
+        )
+    b, d, d_prima = to_float(args[0]), to_float(args[1]), to_float(args[2])
+    as_t, as_c, n_val = to_float(args[3]), to_float(args[4]), to_float(args[5])
+    data = {
+        "b": b, "d": d, "d_prima": d_prima,
+        "as_traccion": as_t, "as_compresion": as_c, "n": n_val,
+    }
+    if len(args) >= 9:
+        data["ma"], data["mcr"], data["ig"] = to_float(args[6]), to_float(args[7]), to_float(args[8])
+    out = run("inercia", "fisurada", data)
+    lineas = [
+        f"Eje neutro c = {out['c']} cm",
+        f"Icr = {out['Icr_cm4']} cm4 = {out['Icr_m4']} m4",
+    ]
+    if "Ie_m4" in out:
+        lineas.append(f"Ie = {out['Ie_m4']} m4  (Ma={out.get('Ma')}, Mcr={out.get('Mcr')})")
+    return "Inercia fisurada\n\n" + "\n".join(lineas)

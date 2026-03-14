@@ -37,9 +37,18 @@ from axis.cli.handlers_diseno import (
     handle_losa_momento,
     handle_losa_cortante,
     handle_cortante_losa,
+    handle_inercia_fisurada,
     handle_results_flexion,
     handle_cortante_viga,
     handle_results_cortante,
+)
+from axis.cli.handlers_inercia import (
+    handle_ie_define,
+    handle_ie_list,
+    handle_ie_delete,
+    handle_ie_seccion,
+    handle_ie_calcular,
+    handle_ie_lambda,
 )
 from axis.cli.sismo_handlers import handle_sismo
 from axis.cli.handlers_irregular import handle_irregular
@@ -128,6 +137,13 @@ HANDLERS = {
     ("losa", "momento"): handle_losa_momento,
     ("losa", "cortante"): handle_losa_cortante,
     ("cortante", "losa"): handle_cortante_losa,
+    ("inercia", "fisurada"): handle_inercia_fisurada,
+    ("inercia", "define"): handle_ie_define,
+    ("inercia", "list"): handle_ie_list,
+    ("inercia", "delete"): handle_ie_delete,
+    ("inercia", "seccion"): handle_ie_seccion,
+    ("inercia", "calcular"): handle_ie_calcular,
+    "lambda": handle_ie_lambda,
     ("results", "flexion"): handle_results_flexion,
     ("cortante", "viga"): handle_cortante_viga,
     ("results", "cortante"): handle_results_cortante,

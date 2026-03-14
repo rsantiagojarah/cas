@@ -34,6 +34,8 @@ ELEMENT_FIELDNAMES: dict[str, list[str]] = {
     "col_factor_r": ["R_X", "R_Y"],
     "col_asignaciones": ["Unique_Name", "Diagrama_Nominal", "Diagrama_Ultimo"],
     "muro_asignaciones": ["muro", "Diagrama_Nominal", "Diagrama_Ultimo"],
+    "ie_elementos": ["nombre", "caso", "b", "h", "d", "d_prima", "fc"],
+    "ie_secciones": ["elemento", "seccion", "as_traccion", "as_compresion", "Ma"],
 }
 
 
