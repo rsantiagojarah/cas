@@ -96,7 +96,6 @@ MUROS_HEADER_MAP = {
     "Vn (Tn)": "Vn\n(Tn)",
     "φVn (Tn)": "φVn\n(Tn)",
     "φVn≥Vu_cap": "φVn\n≥Vu_cap",
-    "Vs≤0.75Vn": "Vs≤\n0.75Vn",
     "Vn≤2.6√f'c·Acw": "Vn≤2.6\n√f'c·Acw",
     "Acw (cm²)": "Acw\n(cm²)",
     "f'c (kg/cm²)": "f'c\n(kg/cm²)",

@@ -17,7 +17,7 @@ HELP_MAP = {
         "cas edit columna <param> <valor> [i1 i2 ...]  - Editar columna en varias vigas"
     ),
     "delete": "cas delete viga <i> [i2 i3 ...]\n  Eliminar viga(s) por índice.",
-    "flexion": "cas flexion viga | cas flexion losa\n  Diseño por flexión (vigas o losas; losas: cuantía mín. 0.0018).",
+    "flexion": "cas flexion viga [viga|índice] | cas flexion losa\n  Diseño por flexión; opcional filtrar por viga (nombre o índice).",
     "losa": (
         "cas losa define [nombre] <fc> <fy> <b> <h> <rec>\n"
         "  Definir una losa (varias si les pone nombre; fc/fy kg/cm², b/h/rec cm).\n"
@@ -32,8 +32,22 @@ HELP_MAP = {
         "cas losa cortante add [nombre_losa] <nombre> <Vu>  |  list [losa]  |  delete <i>\n"
         "  Añadir/listar/eliminar cortantes por losa (Vu en Tn). Luego: cas cortante losa."
     ),
+    "viga": (
+        "cas viga define [nombre] <fc> <fy> <b> <h> <rec>\n"
+        "  Definir una viga (varias si les pone nombre; fc/fy kg/cm², b/h/rec cm).\n"
+        "cas viga list\n"
+        "  Listar vigas definidas.\n"
+        "cas viga delete <nombre|índice>\n"
+        "  Borrar una viga (y sus momentos/cortantes).\n"
+        "cas viga momento add [nombre_viga|índice] <nombre> <Mu>\n"
+        "  Añadir momento a la viga (índice = número de fila en cas viga list).\n"
+        "cas viga momento list [nombre_viga] | delete <nº fila> | delete <viga> <nombre>\n"
+        "  Listar momentos; eliminar por nº de fila (igual que en 'cas flexion viga') o por viga + nombre.\n"
+        "cas viga cortante add [viga|i] <nombre> <Vu>  |  Vu1 Vu2...  |  T S M Vu...  |  list  |  delete <nº fila> | <viga> <nombre>\n"
+        "  Igual que momento: solo Vu (V1,V2...), estructura T×S×M, o nombre+Vu. Delete por fila (cas cortante viga) o viga+nombre."
+    ),
     "results": "cas results flexion [viga|losa] | cas results cortante\n  Ver resultados en tabla.",
-    "cortante": "cas cortante viga | cas cortante losa\n  Cortante vigas (estribos) o losas (solo Vu vs phi*Vc).",
+    "cortante": "cas cortante viga [viga|i] | cas cortante losa\n  Cortante vigas (estribos; opcional filtrar) o losas (Vu vs phi*Vc).",
     "lambda": (
         "Factor λΔ deflexión diferida (E.060): λΔ = ξ/(1+50·ρ'), ρ'=As'/(b·d).\n"
         "  cas lambda <b> <d> <As'> <xi>  Cálculo directo (b,d cm; As' cm²).\n"
@@ -98,6 +112,7 @@ HELP_MAP = {
     ),
     "columna": (
         "DISEÑO DE COLUMNAS DE CONCRETO ARMADO (E.060)\n"
+        "  Solo se usan esfuerzos con Station 0.\n"
         "\n"
         "DATOS DE ENTRADA:\n"
         "cas columna props <Unique_Name> <k> <lu> <Ix> <Iy> <Ag> <Bd> [fc] [fy]\n"
@@ -123,6 +138,8 @@ HELP_MAP = {
         "  Verificacion P-M de una combinacion: P, M2, M3, theta, Mu_equiv, Cap, Ratio.\n"
         "cas columna asignar <UN> <Nominal> [Ultimo]\n"
         "  Asignar diagramas a columna.\n"
+        "cas columna diagrama [nombre_seccion]\n"
+        "  Superficie de interaccion 3D con todos los puntos de esfuerzos finales (Station 0).\n"
         "\n"
         "PASOS DE ANALISIS (DETALLADOS):\n"
         "cas columna q                 Paso 1: Indice de estabilidad Q\n"
@@ -180,13 +197,17 @@ HELP_LINES = [
     "  delete viga <i> [i2 i3 ...]",
     "",
     "Cálculos:",
-    "  flexion viga                    Diseño por flexión vigas",
+    "  flexion viga [viga|i]           Diseño por flexión vigas (opcional: filtrar por viga)",
     "  flexion losa                    Diseño por flexión losas (ρ_min=0.0018)",
     "  losa define [nombre] <fc> <fy> <b> <h> <rec>  Definir losa(s)",
     "  losa list | delete <nombre|i>  Listar o borrar losas",
     "  losa momento add [nombre_losa] <nombre> <Mu>  Momentos | list | delete <i>",
     "  losa cortante add [nombre_losa] <nombre> <Vu>  Cortantes | list | delete <i>",
-    "  cortante viga | cortante losa  Diseño por cortante (vigas o losas)",
+    "  viga define [nombre] <fc> <fy> <b> <h> <rec>  Definir viga(s) (mismo flujo que losa)",
+    "  viga list | delete <nombre|i>  Listar o borrar vigas",
+    "  viga momento add [nombre_viga|índice] <nombre> <Mu>  Momentos | list | delete <i>",
+    "  viga cortante add [viga|i] <nombre> <Vu>  |  Vu1 Vu2...  |  T S M Vu...  |  list | delete <nº fila>|<viga> <nombre>",
+    "  cortante viga [viga|i] | cortante losa  Diseño por cortante (vigas o losas; filtro opcional)",
     "  inercia define <nombre> <caso> b h d d' fc  Elemento Ie E.060",
     "  inercia seccion add <elem> <seccion> As As' Ma  (b,h,d,d',fc del elemento)",
     "  inercia calcular [nombre]  Ie por sección e Ie promedio",
@@ -259,6 +280,7 @@ HELP_LINES = [
     "                                  Alturas de entrepiso",
     "  columna factor-r <R_X> <R_Y>   Factor R",
     "  columna asignar <UN> <Nom> [Ult] Asignar diagramas a columna",
+    "  columna diagrama [seccion]       Superficie P-M2-M3 + todos esfuerzos finales",
     "  columna q                       Paso 1: Indice Q",
     "  columna esbeltez                Paso 2: Momentos extremos",
     "  columna segundo-orden           Paso 3: Segundo orden",

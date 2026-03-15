@@ -171,7 +171,6 @@ def _serialize(r) -> dict:
         "Vn": round(s.Vn, 2),
         "phi_Vn": round(s.phi_Vn, 2),
         "corte_ok": s.ok,
-        "vs_limit_ok": s.vs_limit_ok,
         "vn_limit_ok": s.vn_limit_ok,
         # Refuerzo
         "rho_h": round(rf.rho_h, 6),

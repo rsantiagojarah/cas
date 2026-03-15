@@ -188,18 +188,28 @@ def handle_muro_etabs(args: list[str]) -> str:
     name_upper = pier_filtro.upper()
     tiene_x, tiene_y = "X" in name_upper, "Y" in name_upper
     if tiene_x and not tiene_y:
-        caso = "SPX"
+        sentido = "X"
+        # Combinaciones con sismo en X: nombre contiene SX, CSX o SPX
+        mask_sismo = df["outputcase"].astype(str).str.upper().str.contains(r"SX|CSX|SPX", regex=True)
     elif tiene_y and not tiene_x:
-        caso = "SPY"
+        sentido = "Y"
+        # Combinaciones con sismo en Y: nombre contiene SY, CSY o SPY
+        mask_sismo = df["outputcase"].astype(str).str.upper().str.contains(r"SY|CSY|SPY", regex=True)
     else:
         raise InvalidInput("No se pudo determinar sentido (X/Y) del nombre del Pier.")
 
-    df = df[df["outputcase"].astype(str).str.upper() == caso]
+    df = df[mask_sismo]
     if df.empty:
-        raise InvalidInput(f"Sin filas para Pier='{pier_filtro}' y OutputCase='{caso}'.")
+        raise InvalidInput(
+            f"Sin filas para Pier='{pier_filtro}' con combinaciones de sismo en {sentido}. "
+            "Verifique que los Output Case contengan SX/CSX (sentido X) o SY/CSY (sentido Y)."
+        )
 
     df["M3_num"] = df["m3"].astype(float)
-    df_group = df.groupby("story", as_index=False)["M3_num"].max()
+    # Mu por piso = mayor |M3| entre todas las combinaciones con sismo en esa dirección
+    df["M3_abs"] = df["M3_num"].abs()
+    df_group = df.groupby("story", as_index=False)["M3_abs"].max()
+    df_group = df_group.rename(columns={"M3_abs": "M3_num"})
 
     story_df = get_table("Story Definitions", log=True)
     if story_df is None or story_df.empty:
@@ -240,7 +250,7 @@ def handle_muro_etabs(args: list[str]) -> str:
         hm_val = alturas.get(str(story), 0.0)
         if hm_val <= 0.0:
             raise InvalidInput(f"Sin altura válida para Story '{story}'.")
-        niveles.append({"nivel": str(story), "hm": hm_val, "Mu": abs(Mu)})
+        niveles.append({"nivel": str(story), "hm": hm_val, "Mu": Mu})
 
     if not niveles:
         raise InvalidInput("No se obtuvieron momentos M3 ni alturas.")
@@ -264,7 +274,7 @@ def handle_muro_etabs(args: list[str]) -> str:
             "tipo_falla", "Mu", "z", "As"]
     tabla = format_table(resultados, columns=cols)
     return (
-        f"Predimensionamiento de muro '{nombre_muro}' desde ETABS (Pier '{pier_filtro}', {caso})\n\n"
+        f"Predimensionamiento de muro '{nombre_muro}' desde ETABS (Pier '{pier_filtro}', sismo {sentido})\n\n"
         + tabla + f"\n\nResultados guardados en: {out_path}"
     )
 
@@ -482,8 +492,7 @@ def _format_design_output(r: dict, Pu_tn: float, Vu_tn: float, Mu_tnm: float) ->
         f"     Vu_cap = {Vu_cap_tn:.2f} Tn   (amplificado Mn/Mua)",
         f"     Vc = {Vc_tn:.2f} Tn   |   Vs = {Vs_tn:.2f} Tn   |   Vn = {Vn_tn:.2f} Tn",
         f"     phi*Vn = {phi_Vn_tn:.2f} Tn   ->   {'CUMPLE' if r['corte_ok'] else 'NO CUMPLE'}",
-        f"     Vs <= 0.75Vn: {'Si' if r['vs_limit_ok'] else 'No'}   |   "
-        f"Vn <= 2.6*sqrt(f'c)*Acw: {'Si' if r['vn_limit_ok'] else 'No'}",
+        f"     Vn <= 2.6*sqrt(f'c)*Acw: {'Si' if r['vn_limit_ok'] else 'No'}",
         "",
         "  7. ELEMENTOS DE BORDE",
         f"     Metodo: {r.get('borde_metodo', '-')}",
@@ -1124,7 +1133,6 @@ _MUROS_REPORT_HEADER_MAP = {
     "Vn (Tn)": "Vn",
     "φVn (Tn)": "φVn",
     "φVn≥Vu_cap": "≥Vu_cap",
-    "Vs≤0.75Vn": "Vs≤0.75Vn",
     "Vn≤2.6√f'c·Acw": "Vn≤2.6√f'c",
     "Acw (cm²)": "Acw",
     "f'c (kg/cm²)": "f'c",
@@ -1220,6 +1228,64 @@ def _format_multi_output(
     pisos = r.get("pisos")
     if pisos is None:
         pisos = []
+
+    # Si NO CUMPLE, mostrar resumen por piso (geom., flexión, corte, agrietamiento, junta)
+    # Precalcular umbral y hm/lm para usar el mismo ρv efectivo que TABLA 8C (el resumen corre antes de 8C)
+    umbral_res = 0.27 * sqrt_fc * Acw if sqrt_fc and Acw else 0
+    hm_lm_global_res = (H_total / lm) if lm and H_total else 0
+    if not ok_global and pisos:
+        lines += ["", "  (Criterios por piso: geom., flexión, corte, agrietamiento Mn≥1.2*Mcr, junta)", ""]
+        resumen = []
+        for p in pisos:
+            geom = p.get("geometry_ok") in (True, "True")
+            flex = p.get("flexion_ok") in (True, "True")
+            cort = p.get("corte_ok") in (True, "True")
+            agri = p.get("cracking_ok") in (True, "True")
+            vn_ok = p.get("vn_limit_ok") in (True, "True")
+            # Junta: mismo criterio que TABLA 8D; usar mismo ρv efectivo que TABLA 8C (rv_min, rho_v_adopt)
+            junta_ok_cell = "-"
+            if p.get("junta_ok") is not None:
+                vu_cap_kg = float(p.get("Vu_cap") or 0.0)
+                raw = next((x for x in pisos_raw if str(x.get("piso")) == str(p.get("piso"))), {})
+                Pu_kg = abs(float(raw.get("Pu", 0) or 0.0)) * 1000.0
+                # ρv efectivo = mismo que TABLA 8C (aún no está _rho_v_eff porque 8C corre después)
+                Vu_cap_kg_p = p.get("Vu_cap", 0)
+                mayor_p = Vu_cap_kg_p >= umbral_res
+                if not mayor_p:
+                    rv_min_p = 0.0015
+                else:
+                    rh_min_p = 0.0025
+                    rho_h_adopt_p = max(p.get("rho_h", 0.0), rh_min_p)
+                    term_p = 0.5 * (2.5 - hm_lm_global_res) * (rho_h_adopt_p - 0.0025)
+                    rv_min_p = max(0.0025, 0.0025 + term_p)
+                rho_v_j = max(float(p.get("rho_v", 0.0)) or 0.0, rv_min_p)
+                Av = rho_v_j * Acw
+                Vn_j = min(1.0 * (Pu_kg + Av * fy), 0.2 * fc * Acw, 55.0 * Acw)
+                phi_vn_j = 0.75 * Vn_j
+                if vu_cap_kg > 0 and phi_vn_j < vu_cap_kg and Acw > 0 and fy > 0:
+                    num = vu_cap_kg / 0.75 - Pu_kg
+                    den = Acw * fy
+                    if den > 0:
+                        rho_v_j = max(rho_v_j, num / den)
+                        Av = rho_v_j * Acw
+                        Vn_j = min(1.0 * (Pu_kg + Av * fy), 0.2 * fc * Acw, 55.0 * Acw)
+                        phi_vn_j = 0.75 * Vn_j
+                # Misma tolerancia que TABLA 8D
+                junta_ok_cell = "✓" if phi_vn_j >= vu_cap_kg * (1.0 - 1e-9) else "✗"
+            junta_ok = junta_ok_cell == "✓" if p.get("junta_ok") is not None else True
+            piso_ok = geom and flex and cort and (p.get("cracking_ok") is not False) and vn_ok and junta_ok
+            resumen.append({
+                "Niv": p.get("piso"),
+                "Geom.": "✓" if geom else "✗",
+                "Flex.": "✓" if flex else "✗",
+                "Corte": "✓" if cort else "✗",
+                "Agriet.": "✓" if agri else "✗",
+                "Junta": junta_ok_cell,
+                "Piso OK": "✓" if piso_ok else "✗",
+            })
+        lines += ["", "  RESUMEN POR PISO (mismo criterio que diseno_ok):", ""]
+        lines.append(format_table(resumen, columns=["Niv", "Geom.", "Flex.", "Corte", "Agriet.", "Junta", "Piso OK"], header_map=_h))
+        lines.append("")
 
     # ── TABLA 1, 2, 3 (solo cuando viene de etabs-diseno) ─────────────
     if df_etabs is not None and not df_etabs.empty and pier_f:
@@ -1483,7 +1549,6 @@ def _format_multi_output(
             "Vn (Tn)": f"{p['Vn']/1000:.2f}",
             "φVn (Tn)": f"{phi_vn_tn:.2f}",
             "φVn≥Vu_cap": "✓" if corte_ok_red else "✗",
-            "Vs≤0.75Vn": "✓" if p.get("vs_limit_ok") else "✗",
             "Vn≤2.6√f'c·Acw": "✓" if p.get("vn_limit_ok") else "✗",
         })
     lines.append(format_table(t4, columns=list(t4[0].keys()) if t4 else [], header_map=_h))
@@ -1845,15 +1910,18 @@ def _format_multi_output(
     for p in pisos:
         Vu_cap_kg = p.get("Vu_cap", 0)
         mayor = Vu_cap_kg >= umbral
+        # ρh adoptado = mayor entre el calculado y el mínimo normativo (11.10.7/11.10.8)
         if not mayor:
-            caso = 1; rh_min = 0.002; rv_min = 0.0015
+            caso = 1
+            rh_min = 0.002
+            rv_min = 0.0015
+            rho_h_adopt = max(p.get("rho_h", 0.0), rh_min)
         else:
-            caso = 2; rh_min = 0.0025
-            rho_h_adopt_tmp = p.get("rho_h", 0.0025)
-            term = 0.5 * (2.5 - hm_lm_global) * (rho_h_adopt_tmp - 0.0025)
+            caso = 2
+            rh_min = 0.0025
+            rho_h_adopt = max(p.get("rho_h", 0.0), rh_min)
+            term = 0.5 * (2.5 - hm_lm_global) * (rho_h_adopt - 0.0025)
             rv_min = max(0.0025, 0.0025 + term)
-
-        rho_h_adopt = p.get("rho_h", 0.0)
         rho_v_raw = p.get("rho_v", 0.0)
         # ρv adoptado no puede ser menor que ρv mínimo normativo
         rho_v_adopt = max(rho_v_raw, rv_min)
@@ -1932,7 +2000,7 @@ def _format_multi_output(
                     "Pu (Tn)": f"{Pu_tn:.2f}",
                     "Av (cm²)": f"{Av_val:.2f}",
                     "ρv junta": f"{rho_v_joint:.4f}",
-                    "Junta OK": "✓" if phi_vn_kg >= vu_cap_kg else "✗",
+                    "Junta OK": "✓" if phi_vn_kg >= vu_cap_kg * (1.0 - 1e-9) else "✗",
                 })
         if t8d:
             lines.append(
@@ -1952,7 +2020,7 @@ def _format_multi_output(
                 )
             )
 
-    # ── TABLA 9: AGRIETAMIENTO (columnas como referencia) ───────────
+    # ── TABLA 9: AGRIETAMIENTO (21.9.6.5: Mn ≥ 1.2*Mcr; mismo criterio que diseno_ok) ───────────
     lines += ["", "=" * 70, "  TABLA 9: VERIFICACIÓN POR AGRIETAMIENTO (21.9.6.5 RNE E.060)", "=" * 70, ""]
     Ig = (lm * t ** 3) / 12.0 if t else 0
     y_ref = lm / 2.0
@@ -1963,16 +2031,17 @@ def _format_multi_output(
         Mn_tnm = p.get("Mn", 0) / 100000
         Mcr_tnm = (p.get("Mcr", 0) or 0) / 100000
         phi_Mn = 0.9 * Mn_tnm
-        phi_mn_ge_mcr = phi_Mn >= Mcr_tnm
+        # Criterio E.060 21.9.6.5: Mn ≥ 1.2*Mcr. Usar cracking_ok del diseño para coincidir con diseno_ok.
+        cracking_ok = p.get("cracking_ok") in (True, "True")
         t9.append({
             "Piso": p.get("piso"),
             "Pu (Tn)": f"{Pu_tn:.2f}",
             "Area (cm²)": f"{Acw:,.0f}",
-            "Inercia (cm⁴)": f"{Ig:,.2f}",
+            "Ig (cm⁴)": f"{Ig:,.2f}",
             "y (cm)": f"{y_ref:.0f}",
             "Mcr (Tn·m)": f"{Mcr_tnm:.2f}",
-            "phi*Mn (Tn·m)": f"{phi_Mn:.2f}",
-            "phi*Mn≥Mcr": "OK" if phi_mn_ge_mcr else "NO",
+            "φMn (Tn·m)": f"{phi_Mn:.2f}",
+            "Mn≥1.2*Mcr": "OK" if cracking_ok else "NO",
         })
     lines.append(format_table(t9, columns=list(t9[0].keys()) if t9 else [], header_map=_h))
 

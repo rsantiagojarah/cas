@@ -1,11 +1,11 @@
 """Handlers CLI: diseño de columnas de concreto armado E.060.
 
-Comandos organizados por paso del procedimiento:
+En columnas solo se trabaja con esfuerzos en Station 0 (los demas se ignoran).
  DATOS:
   columna props          - Agregar/editar propiedades de columna
   columna props-list     - Listar propiedades
   columna esfuerzos      - Agregar esfuerzo de elemento
-  columna esfuerzos-list - Listar esfuerzos
+  columna esfuerzos-list - Listar esfuerzos (solo Station 0)
   columna story-forces   - Agregar story forces
   columna drifts         - Agregar story drifts
   columna alturas        - Agregar alturas de entrepiso
@@ -82,13 +82,31 @@ def _to_f(val, default=None):
     return float(str(val).replace(",", "."))
 
 
+def _is_station_0(station) -> bool:
+    """True si Station es 0 (solo trabajamos con Station 0 en columnas)."""
+    if station is None:
+        return False
+    s = str(station).strip()
+    if s == "0":
+        return True
+    try:
+        return float(s) == 0.0
+    except ValueError:
+        return False
+
+
+def _esfuerzos_station_0(esfuerzos: list[dict]) -> list[dict]:
+    """Filtra esfuerzos dejando solo los que tienen Station 0."""
+    return [r for r in esfuerzos if _is_station_0(r.get("Station"))]
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # DATOS: Propiedades de columnas
 # ═══════════════════════════════════════════════════════════════════════
 
 def _story_from_esfuerzos(pp: Path, unique_name: str) -> str:
-    """Obtiene Story del primer registro en col_esfuerzos para ese Unique_Name."""
-    esfuerzos = read_csv(pp, "col_esfuerzos")
+    """Obtiene Story del primer registro en col_esfuerzos (Station 0) para ese Unique_Name."""
+    esfuerzos = _esfuerzos_station_0(read_csv(pp, "col_esfuerzos"))
     for r in esfuerzos:
         if str(r.get("Unique_Name", "")).strip() == str(unique_name).strip():
             return str(r.get("Story", "")).strip()
@@ -323,11 +341,11 @@ def handle_columna_esfuerzos(args: list[str]) -> str:
 
 
 def handle_columna_esfuerzos_list(args: list[str]) -> str:
-    """cas columna esfuerzos-list [Unique_Name] -> Listar esfuerzos."""
+    """cas columna esfuerzos-list [Unique_Name] -> Listar esfuerzos (solo Station 0)."""
     pp = _project()
-    rows = read_csv(pp, "col_esfuerzos")
+    rows = _esfuerzos_station_0(read_csv(pp, "col_esfuerzos"))
     if not rows:
-        return "No hay esfuerzos de columnas."
+        return "No hay esfuerzos de columnas con Station 0."
     nombre = args[0] if args else None
     if nombre:
         rows = [r for r in rows if r.get("Unique_Name") == nombre]
@@ -660,6 +678,7 @@ def handle_columna_etabs_import(args: list[str]) -> str:
     n_alt = 0
     try:
         esfuerzos, _ = _etabs_column_forces()
+        # Guardar todas las stations para Paso 2 (esbeltez) y Cm; Paso 6 usa solo Station 0
         n_esf = len(esfuerzos)
         write_csv(pp, esfuerzos, "col_esfuerzos", ELEMENT_FIELDNAMES["col_esfuerzos"])
         lines.append(f"  Esfuerzos de columnas: {n_esf} registros")
@@ -726,6 +745,60 @@ def handle_columna_asignar(args: list[str]) -> str:
     return msg + "\n\n" + format_table(existing, columns=cols)
 
 
+def handle_columna_diagrama(args: list[str]) -> str:
+    """cas columna diagrama [nombre_seccion]
+
+    Muestra la superficie de interacción 3D con todos los puntos de esfuerzos finales
+    (results/columnas/esfuerzos_finales.csv). Si no se indica nombre_seccion, se usa
+    el primer diagrama nominal asignado a alguna columna (o el primero disponible).
+    Requiere: pip install matplotlib scipy
+    """
+    pp = _project()
+    esfuerzos_fin = read_results_csv(pp, "columnas/esfuerzos_finales.csv")
+    if not esfuerzos_fin:
+        raise InvalidInput(
+            "Sin esfuerzos finales. Ejecute antes 'cas columna esfuerzos-fin' (o 'cas columna diseno')."
+        )
+    diagramas = read_json(pp, "diagramas.json") or {}
+    nominales = {k.replace("_nominal", ""): v for k, v in diagramas.items() if "_nominal" in k}
+    if not nominales:
+        raise InvalidInput(
+            "No hay diagramas nominales. Use 'cas diagrama add <nombre> nominal <archivo>'."
+        )
+    if args:
+        section_name = args[0].strip()
+        if section_name not in nominales:
+            raise InvalidInput(
+                f"No existe diagrama nominal '{section_name}'. Disponibles: {sorted(nominales.keys())}"
+            )
+    else:
+        asignaciones = read_csv(pp, "col_asignaciones")
+        asignados = {str(a.get("Diagrama_Nominal", "")).strip() for a in asignaciones if a.get("Diagrama_Nominal")}
+        section_name = next((s for s in nominales if s in asignados), None)
+        if section_name is None:
+            section_name = sorted(nominales)[0]
+    puntos = nominales[section_name]
+    if not puntos or not isinstance(puntos, list):
+        raise InvalidInput(f"El diagrama '{section_name}' no tiene puntos válidos.")
+    puntos_esfuerzo = [
+        {"P": float(r.get("P", 0)), "M2": float(r.get("M2", 0)), "M3": float(r.get("M3", 0))}
+        for r in esfuerzos_fin
+    ]
+    from axis.cli.pm_plotter import plot_superficie_interaccion
+    try:
+        plot_superficie_interaccion(
+            puntos,
+            titulo="Superficie de Interacción P-M2-M3",
+            subtitulo=f"Diagrama {section_name} — {len(puntos_esfuerzo)} esfuerzos finales (Station 0)",
+            puntos_esfuerzo=puntos_esfuerzo,
+        )
+    except RuntimeError as e:
+        raise InvalidInput(str(e)) from e
+    return (
+        f"Gráfico mostrado: superficie '{section_name}' con {len(puntos_esfuerzo)} puntos de esfuerzos finales."
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # PASO 1: Índice de estabilidad Q
 # ═══════════════════════════════════════════════════════════════════════
@@ -773,9 +846,11 @@ def handle_columna_q(args: list[str]) -> str:
 
 def handle_columna_esbeltez(args: list[str]) -> str:
     """cas columna esbeltez -> Calcula M1, M2 y curvatura por columna.
+    Usa stations extremas (mín y máx) como Diseño_Columnas; resto del flujo igual.
     Solo se listan columnas que tienen propiedades definidas (col_props).
     """
     pp = _project()
+    # Paso 2: todas las stations para hallar M1/M2 en extremos (como Diseño_Columnas)
     esfuerzos = read_csv(pp, "col_esfuerzos")
     alturas = read_csv(pp, "col_alturas")
     props = read_csv(pp, "col_props")
@@ -857,6 +932,7 @@ def handle_columna_segundo_orden(args: list[str]) -> str:
 def handle_columna_cm(args: list[str]) -> str:
     """cas columna cm -> Calcula factor Cm por columna. Solo columnas con propiedades."""
     pp = _project()
+    # Todas las stations para M1/M2 en extremos (como Diseño_Columnas)
     esfuerzos = read_csv(pp, "col_esfuerzos")
     segundo_orden = read_results_csv(pp, "columnas/segundo_orden.csv")
     props = read_csv(pp, "col_props")
@@ -898,7 +974,7 @@ def handle_columna_delta(args: list[str]) -> str:
     pp = _project()
     props = read_csv(pp, "col_props")
     cm_results = read_results_csv(pp, "columnas/cm.csv")
-    esfuerzos = read_csv(pp, "col_esfuerzos")
+    esfuerzos = _esfuerzos_station_0(read_csv(pp, "col_esfuerzos"))
     segundo_orden = read_results_csv(pp, "columnas/segundo_orden.csv")
 
     if not props:
@@ -940,7 +1016,7 @@ def handle_columna_delta(args: list[str]) -> str:
 def handle_columna_esfuerzos_finales(args: list[str]) -> str:
     """cas columna esfuerzos-fin -> Amplifica momentos con delta. Solo columnas con propiedades."""
     pp = _project()
-    esfuerzos = read_csv(pp, "col_esfuerzos")
+    esfuerzos = _esfuerzos_station_0(read_csv(pp, "col_esfuerzos"))
     delta_results = read_results_csv(pp, "columnas/delta.csv")
     props = read_csv(pp, "col_props")
 
@@ -955,9 +1031,11 @@ def handle_columna_esfuerzos_finales(args: list[str]) -> str:
     from axis.columnas.analysis import compute_final_forces
     results = compute_final_forces(esfuerzos, delta_results)
     results = [r for r in results if str(r.get("Unique_Name", "")).strip() in props_unique]
+    # Solo salida Station 0 (por si en algún flujo entraron más stations)
+    results = _esfuerzos_station_0(results)
 
     if not results:
-        return "No se pudieron calcular esfuerzos finales para columnas con propiedades."
+        return "No se pudieron calcular esfuerzos finales para columnas con propiedades (Station 0)."
 
     write_results_csv(pp, "columnas/esfuerzos_finales.csv", results)
 
@@ -1157,8 +1235,8 @@ def handle_columna_diseno(args: list[str]) -> str:
     """cas columna diseno -> Ejecuta todos los pasos de análisis y verificación P-M."""
     pp = _project()
 
-    # TABLA 1: Propiedades de columnas analizadas (solo las que tienen esfuerzos)
-    esfuerzos = read_csv(pp, "col_esfuerzos")
+    # TABLA 1: Propiedades de columnas analizadas (solo las que tienen esfuerzos Station 0)
+    esfuerzos = _esfuerzos_station_0(read_csv(pp, "col_esfuerzos"))
     props = read_csv(pp, "col_props")
     if props and esfuerzos:
         un_esf = {
@@ -1220,7 +1298,7 @@ def handle_columna_etabs_diseno(args: list[str]) -> str:
     pp = _project()
 
     # Auto-asignar diagramas si faltan: usar diagrama_default o el primer nominal disponible
-    esfuerzos = read_csv(pp, "col_esfuerzos")
+    esfuerzos = _esfuerzos_station_0(read_csv(pp, "col_esfuerzos"))
     asignaciones = read_csv(pp, "col_asignaciones")
     diagramas = read_json(pp, "diagramas.json") or {}
     nominales = [k.replace("_nominal", "") for k in diagramas if "_nominal" in k]

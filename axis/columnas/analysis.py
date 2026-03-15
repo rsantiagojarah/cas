@@ -174,7 +174,11 @@ def compute_slenderness(
 def _calc_extreme_moments(
     rows: list[dict], col_m: str,
 ) -> tuple[Optional[float], Optional[float], str]:
-    """Calcula M1/M2 para la combinación crítica (34 - 12*M1/M2 máximo)."""
+    """
+    Calcula M1/M2 para la combinación crítica (34 - 12*M1/M2 máximo).
+    Igual que Diseño_Columnas: solo stations extremas (mín y máx), M1 = menor |M| con signo,
+    M2 = mayor |M| con signo; curvatura según la combinación crítica.
+    """
     valid = []
     for r in rows:
         try:
@@ -199,12 +203,14 @@ def _calc_extreme_moments(
         oc = r.get("Output_Case", r.get("Output Case", ""))
         st = r.get("Step_Type", r.get("Step Type", ""))
         key = f"{oc}|{st}"
-        combos.setdefault(key, []).append(m)
+        combos.setdefault(key, []).append((m, r))
 
     best_val = -math.inf
     m1_final, m2_final = None, None
+    best_key = None
 
-    for key, moments in combos.items():
+    for key, items in combos.items():
+        moments = [x[0] for x in items]
         if not moments:
             continue
         abs_moments = [abs(m) for m in moments]
@@ -215,17 +221,24 @@ def _calc_extreme_moments(
 
         if abs(m2) > 1e-10:
             ratio = m1 / m2
-            formula = 34 - 12 * ratio
+            formula = min(34 - 12 * ratio, 40.0)
             if formula > best_val:
                 best_val = formula
                 m1_final, m2_final = m1, m2
+                best_key = key
 
     if m1_final is None or m2_final is None:
         return None, None, "N/A"
 
-    all_m = [v[1] for v in extremes]
-    has_pos = any(m > 0 for m in all_m)
-    has_neg = any(m < 0 for m in all_m)
+    # Curvatura solo de la combinación crítica (como Diseño_Columnas)
+    if best_key is not None:
+        momentos_critico = [v[0] for v in combos[best_key]]
+        has_pos = any(m > 0 for m in momentos_critico)
+        has_neg = any(m < 0 for m in momentos_critico)
+    else:
+        momentos_critico = [v[1] for v in extremes]
+        has_pos = any(m > 0 for m in momentos_critico)
+        has_neg = any(m < 0 for m in momentos_critico)
     curvatura = "Doble" if has_pos and has_neg else "Simple"
 
     return m1_final, m2_final, curvatura
@@ -244,7 +257,7 @@ def compute_second_order(
     Evalúa si se pueden ignorar efectos de segundo orden.
     Arriostrado: (k*lu)/r <= 34-12*(M1/M2) <= 40
     No arriostrado: (k*lu)/r < 22
-    Usa Ix para dirección X e Iy para dirección Y (compat: fallback a I).
+    Análisis en dirección X usa inercia Iy; análisis en dirección Y usa inercia Ix.
     """
     props_map = {p["Unique_Name"]: p for p in props}
     q_map = {(r["Story"], r["Direction"]): r["Classification"] for r in q_results}
@@ -264,7 +277,8 @@ def compute_second_order(
         I_fallback = float(prop.get("I", 0.0))
         Ix = float(prop.get("Ix", I_fallback))
         Iy = float(prop.get("Iy", I_fallback))
-        I_map = {"X": Ix, "Y": Iy}
+        # Dirección X → Iy; dirección Y → Ix (inercia que resiste la flexión en esa dirección)
+        I_map = {"X": Iy, "Y": Ix}
 
         for direction in ["X", "Y"]:
             I_dir = I_map[direction]
@@ -415,10 +429,9 @@ def compute_delta(
 ) -> list[dict]:
     """
     Calcula EI, Pc y delta por columna y dirección.
-    EI_X = (0.4*Ec*Ix)/(1+Bd),  EI_Y = (0.4*Ec*Iy)/(1+Bd)
+    EI = (0.4*Ec*I)/(1+Bd). Análisis en X usa Iy; análisis en Y usa Ix.
     Pc = pi²*EI/(k*lu)²
     delta = Cm/(1-0.75*Pu/Pc) >= 1.0
-    Usa Ix para dirección X, Iy para dirección Y (compat: fallback a I).
     """
     cm_map = {r["Unique_Name"]: r for r in cm_results}
     pu_map = _calc_pu_max(esfuerzos)
@@ -446,8 +459,9 @@ def compute_delta(
         cm_x = float(cm_row.get("Cm_X", 1.0))
         cm_y = float(cm_row.get("Cm_Y", 1.0))
 
-        ei_x = _calc_ei(ec, Ix, bd)
-        ei_y = _calc_ei(ec, Iy, bd)
+        # Dirección X → Iy; dirección Y → Ix (misma convención que paso 3)
+        ei_x = _calc_ei(ec, Iy, bd)
+        ei_y = _calc_ei(ec, Ix, bd)
         pc_x = _calc_pc(ei_x, k, lu)
         pc_y = _calc_pc(ei_y, k, lu)
         delta_x = _calc_delta(cm_x, pu, pc_x)

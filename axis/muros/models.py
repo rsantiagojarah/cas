@@ -82,7 +82,6 @@ class ShearResult:
     Vn: float              # kg
     phi_Vn: float          # kg
     ok: bool
-    vs_limit_ok: bool
     vn_limit_ok: bool
 
 
@@ -120,7 +119,6 @@ class WallDesignResult:
             self.geometry_ok
             and self.flexure.ok
             and self.shear.ok
-            and self.shear.vs_limit_ok
             and self.shear.vn_limit_ok
             and (self.flexure.cracking_ok is not False)
         )

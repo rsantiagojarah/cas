@@ -3,6 +3,7 @@
 Implementa las fórmulas del Excel de predimensionamiento:
 
 - Clasificación del muro con la esbeltez H/L.
+- H = altura desde el nivel actual hasta la punta del edificio (decrece en pisos superiores).
 - Brazo interno z según H/L.
 - As requerida por nivel: As = Mu / (φ · fy · z).
 
@@ -85,8 +86,9 @@ def predimension_muro_nucleo(data: dict) -> dict:
           - hm: altura de piso a piso para ese nivel (m)
           - Mu: momento último en el núcleo para ese nivel (Tn·m)
 
-    El algoritmo acumula la altura hm para obtener H_total en cada nivel,
-    calcula H/L, z y As, y clasifica el muro como esbelto o no esbelto.
+    El algoritmo usa H_total = altura desde la base del nivel actual hasta la
+    punta del edificio (decrece hacia pisos superiores). Con eso calcula H/L,
+    z y As, y clasifica el muro como esbelto o no esbelto.
 
     Retorna:
       {
@@ -124,8 +126,13 @@ def predimension_muro_nucleo(data: dict) -> dict:
     if not niveles:
         raise InvalidInput("Debe proporcionarse al menos un nivel en 'niveles'.")
 
+    h_inicial = to_float(data.get("H_inicial"), default=0.0)
+    # Altura total del edificio (desde la base del primer nivel hasta la punta)
+    altura_total_edificio = h_inicial + sum(to_float(f.get("hm")) for f in niveles)
+
     resultados: list[dict] = []
-    h_acumulada = to_float(data.get("H_inicial"), default=0.0)
+    # Altura desde la base hasta el inicio del nivel actual (va creciendo)
+    h_desde_base = h_inicial
 
     for i, fila in enumerate(niveles):
         nombre_nivel = str(fila.get("nivel") or f"Nivel {i + 1}")
@@ -137,16 +144,17 @@ def predimension_muro_nucleo(data: dict) -> dict:
         if mu <= 0:
             raise InvalidInput(f"Mu debe ser > 0 (nivel '{nombre_nivel}').")
 
-        h_acumulada += hm
-        tipo_muro, z = _clasificar_muro_y_z(h_acumulada, l_muro)
-        relacion_hl = h_acumulada / l_muro
+        # H = altura desde el nivel actual hasta la punta del edificio (decrece hacia arriba)
+        h_total_nivel = altura_total_edificio - h_desde_base
+        tipo_muro, z = _clasificar_muro_y_z(h_total_nivel, l_muro)
+        relacion_hl = h_total_nivel / l_muro
         as_cm2 = _as_requerida(mu, fy, phi, z)
 
         resultados.append(
             {
                 "nivel": nombre_nivel,
                 "hm": round(hm, 2),
-                "H_total": round(h_acumulada, 2),
+                "H_total": round(h_total_nivel, 2),
                 "H_L": round(relacion_hl, 3),
                 "tipo_muro": tipo_muro,
                 "tipo_falla": "Por Flexión",
@@ -155,6 +163,7 @@ def predimension_muro_nucleo(data: dict) -> dict:
                 "As": round(as_cm2, 2),
             }
         )
+        h_desde_base += hm
 
     return {
         "L": l_muro,

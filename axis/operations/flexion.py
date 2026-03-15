@@ -30,20 +30,35 @@ def _calcular_flexion(
     nombre: str, fc: float, fy: float, b: float, h: float, rec: float, mu: float
 ) -> dict:
     """
-    Diseño por flexión E-060 (criterio cuantía máxima). Mu en Tn-m.
-    Retorna: nombre, Tipo, As, As', Asmin, Asmax, As_colocar, As_prima_colocar, Estado.
+    Diseño por flexión E-060 (criterio cuantía máxima). Mu en Tn-m (se usa |Mu| en cálculos).
+    Retorna: nombre, Mu, As, As', Asmin, Asmax, As_colocar, As_prima_colocar.
     """
-    if fc <= 0 or fy <= 0 or b <= 0 or h <= 0 or rec <= 0 or mu <= 0:
-        raise InvalidInput("Todos los parámetros deben ser positivos")
+    if fc <= 0 or fy <= 0 or b <= 0 or h <= 0 or rec <= 0:
+        raise InvalidInput("fc, fy, b, h, rec deben ser positivos")
     if rec >= h:
         raise InvalidInput("El recubrimiento debe ser menor que la altura total")
 
     d = h - rec
     d_prima = rec
-    mu_kgcm = mu * 1000 * 100
-    b1 = beta1(fc)
+    asmin_val = asmin(fc, b, d, fy)
     a_max = a_max_balanceada(d, fy, fc)
+    asmax = asmax_vsr(fc, a_max, fy, b)
 
+    if mu == 0:
+        return {
+            "nombre": nombre,
+            "Mu": round(mu, 2),
+            "As": 0.0,
+            "As'": 0.0,
+            "Asmin": round(asmin_val, 2),
+            "Asmax": round(asmax, 2),
+            "As_colocar": round(asmin_val, 2),
+            "As_prima_colocar": 0.0,
+        }
+
+    mu_abs = abs(mu)
+    mu_kgcm = mu_abs * 1000 * 100
+    b1 = beta1(fc)
     a = profundidad_bloque_compresion(d, mu_kgcm, fc, b)
     tipo = "VSR" if a <= a_max else "VDR"
 
@@ -55,10 +70,7 @@ def _calcular_flexion(
             mu_kgcm, fc, fy, b, d, d_prima, a_max, b1
         )
 
-    asmin_val = asmin(fc, b, d, fy)
-    if tipo == "VSR":
-        asmax = asmax_vsr(fc, a_max, fy, b)
-    else:
+    if tipo != "VSR":
         asmax = asmax_vdr(fc, a_max, b, fy, as_prima, fs_prima)
 
     as_colocar = max(as_req, asmin_val)
@@ -81,17 +93,30 @@ def _calcular_flexion_losa(
 ) -> dict:
     """
     Diseño por flexión de losa: solo sección simplemente reforzada (sin As').
-    Cuantía mínima 0.0018. Si a > a_max no se calcula y se indica supera acero máximo.
+    Cuantía mínima 0.0018. Se usa |Mu| en cálculos. Si a > a_max se indica *.
     """
-    if fc <= 0 or fy <= 0 or b <= 0 or h <= 0 or rec <= 0 or mu <= 0:
-        raise InvalidInput("Todos los parámetros deben ser positivos")
+    if fc <= 0 or fy <= 0 or b <= 0 or h <= 0 or rec <= 0:
+        raise InvalidInput("fc, fy, b, h, rec deben ser positivos")
     if rec >= h:
         raise InvalidInput("El recubrimiento debe ser menor que la altura total")
 
     d = h - rec
-    mu_kgcm = mu * 1000 * 100
+    asmin_val = asmin_losa(b, d)
     a_max = a_max_balanceada(d, fy, fc)
+    asmax = asmax_vsr(fc, a_max, fy, b)
 
+    if mu == 0:
+        return {
+            "nombre": nombre,
+            "Mu": round(mu, 2),
+            "As": 0.0,
+            "Asmin": round(asmin_val, 2),
+            "Asmax": round(asmax, 2),
+            "As req.": round(asmin_val, 2),
+        }
+
+    mu_abs = abs(mu)
+    mu_kgcm = mu_abs * 1000 * 100
     a = profundidad_bloque_compresion(d, mu_kgcm, fc, b)
     if a > a_max:
         asmin_val = asmin_losa(b, d)
@@ -145,6 +170,8 @@ def flexion_viga(data: dict) -> dict:
         rec = to_float(fila.get("rec"))
         mu = to_float(fila.get("Mu"))
         res = _calcular_flexion(nombre, fc, fy, b, h, rec, mu)
+        if "viga" in fila and fila.get("viga") != "":
+            res["viga"] = fila.get("viga")
         resultados.append(res)
 
     return {"resultados": resultados}

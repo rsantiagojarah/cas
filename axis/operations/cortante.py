@@ -78,26 +78,29 @@ def _calcular_cortante(
         av_s_req = None
         error_msg = "Vu > phi*Vn_max: aumentar peralte o fc"
 
-    cumple_vs_max = (vs_kg <= vs_max_kg) if av_s_req is not None else None
-
     s_max_base_cm = s_max_base(d)
     s_max_cm = s_max_reducido(s_max_base_cm, vs_kg, fc, b, d)
     av_s_min_ratio = av_s_min(fc, b, fy)
-    if av_s_req is not None and av_s_req > 0:
-        av_s_req = max(av_s_req, av_s_min_ratio)
 
-    # Fuerzas en Tn; sin columnas d, Vu, Vn_max. Orden: flujo de diseño.
+    # As/s req. = max(Av_s calculado, Av_s_min)
+    if av_s_req is not None and av_s_req > 0:
+        as_s_req = max(av_s_req, av_s_min_ratio)
+    elif av_s_req is not None:
+        as_s_req = av_s_min_ratio
+    else:
+        as_s_req = None
+
+    # Fuerzas en Tn; orden: flujo de diseño.
     return {
         "nombre": nombre,
+        "Vu": round(vu_tn, 2),
         "Vc": round(vc_kg / 1000, 2),
         "phi_Vc_2": round(umbral_sin_refuerzo / 1000, 2),
         "Vs_max": round(vs_max_kg / 1000, 2),
         "phi_Vn_max": round(umbral_maximo / 1000, 2),
-        "Vs": round(vs_kg / 1000, 2) if av_s_req is not None else round(vs_kg / 1000, 2),
-        "cumple_Vs_max": cumple_vs_max,
-        "Av_s": round(av_s_req, 4) if av_s_req is not None else None,
+        "Vs": round(vs_kg / 1000, 2),
+        "As/s req.": round(as_s_req, 4) if as_s_req is not None else None,
         "s_max": round(s_max_cm, 2),
-        "Av_s_min": round(av_s_min_ratio, 4),
     }
 
 
@@ -120,6 +123,8 @@ def cortante_viga(data: dict) -> dict:
         rec = to_float(fila.get("rec"))
         vu = to_float(fila.get("Vu"), default=0.0)
         res = _calcular_cortante(nombre, fc, fy, b, h, rec, vu)
+        if "viga" in fila and fila.get("viga") != "":
+            res["viga"] = fila.get("viga")
         resultados.append(res)
 
     return {"resultados": resultados}

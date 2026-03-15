@@ -231,15 +231,25 @@ def design_shear(
         Vn = Vc + Vs
         phi_Vn = C.PHI_SHEAR * Vn
 
-    ok = phi_Vn >= Vu_cap
-    vs_ok = Vs <= 0.75 * Vn
+    # 11.10.7/11.10.8: ρh adoptado debe ser al menos el mínimo normativo
+    reinf = Reinforcement(
+        rho_h=max(reinf.rho_h, rho_h_min),
+        rho_v=reinf.rho_v,
+        n_capas=reinf.n_capas,
+    )
+    Vs = _Vs(geo, mat, reinf)
+    Vn = Vc + Vs
+    phi_Vn = C.PHI_SHEAR * Vn
+
+    _tol = 1e-9
+    ok = phi_Vn >= Vu_cap * (1.0 - _tol)  # tolerancia numérica para evitar falso NO CUMPLE
     vn_max = C.SHEAR_COEF_2 * mat.sqrt_fc * geo.Acw
-    vn_ok = Vn <= vn_max
+    vn_ok = Vn <= vn_max * (1.0 + _tol)
 
     result = ShearResult(
         Vu_orig=Vu, Vu_cap=Vu_cap, Vc=Vc, Vs=Vs,
         Vn=Vn, phi_Vn=phi_Vn, ok=ok,
-        vs_limit_ok=vs_ok, vn_limit_ok=vn_ok,
+        vn_limit_ok=vn_ok,
     )
     return result, reinf
 
@@ -478,13 +488,29 @@ def design_wall(
     # 8. Elementos de borde
     boundary = design_boundary(geo, mat, loads, reinf, boundary_method)
 
-    # 9. Juntas
+    # 9. Juntas (mismo criterio que TABLA 8D: si con Av actual no alcanza, se puede subir Av hasta cumplir)
     joint = None
-    # Para consistencia con TABLA 8C/8D: Av se toma desde ρv adoptado del piso.
-    # Av = ρv_adopt · Acw
     Av_eff = reinf.rho_v * geo.Acw
     if Av_eff > 0:
         joint = verify_joint(geo, mat, loads, shear.Vu_cap, Av_eff, joint_mu)
+        if joint is not None and not joint.ok and geo.Acw > 0 and mat.fy > 0:
+            # Calcular Av requerido para φVn ≥ Vu_cap (igual que TABLA 8D)
+            Vn_req = shear.Vu_cap / C.PHI_SHEAR
+            lim1 = C.JOINT_COEF_1 * mat.fc * geo.Acw
+            lim2 = C.JOINT_COEF_2 * geo.Acw
+            Vn_max = min(lim1, lim2)
+            if Vn_req <= Vn_max:
+                Av_req = (Vn_req / joint_mu - abs(loads.Pu)) / mat.fy
+                Av_req = max(0.0, Av_req)
+                Av_use = max(Av_eff, Av_req)
+                Vn_j = joint_mu * (abs(loads.Pu) + Av_use * mat.fy)
+                Vn_j = min(Vn_j, lim1, lim2)
+                phi_Vn_j = C.PHI_SHEAR * Vn_j
+                if phi_Vn_j >= shear.Vu_cap:
+                    joint = JointResult(
+                        Vn_joint=Vn_j, phi_Vn_joint=phi_Vn_j, ok=True,
+                        Av=Av_use, mu=joint_mu,
+                    )
 
     return WallDesignResult(
         nombre=nombre,
