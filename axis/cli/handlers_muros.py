@@ -14,6 +14,7 @@ from axis.core.database import (
 from axis.engine.engine import run
 from axis.cli.tables import format_table
 from axis.cli.handlers import get_base_path
+from axis.muros.constants import RNE as _RNE_MUROS_CONST
 from axis.data.etabs_table_reader import get_table, clear_table_cache
 
 try:
@@ -1194,6 +1195,7 @@ def _format_multi_output(
     pier_f: str = None,
     pp: Path = None,
     sismo_dir: str = "SX",
+    n_sotanos: int | None = None,
 ) -> str:
     """Formatea salida multipiso con TODAS las tablas del procedimiento RNE E.060.
 
@@ -1224,10 +1226,76 @@ def _format_multi_output(
         f"  Materiales: f'c={fc:.0f}  fy={fy:.0f}  fyt={fyt:.0f} kg/cm2",
         f"  H_total={H_total:.0f} cm  ({H_total/100:.2f} m)",
     ]
+    if n_sotanos is not None and n_sotanos > 0:
+        lines.append(
+            f"  Niveles de sotano considerados: 1 a {n_sotanos} "
+            f"(en esos pisos se usa Vu_cap = Vu de analisis, sin amplificacion por capacidad)."
+        )
 
     pisos = r.get("pisos")
     if pisos is None:
         pisos = []
+
+    # ── Verificación P-M global basada en TABLA 2 (InteractionSurface) ──
+    # Si tenemos df_etabs y diagrama asignado, se calcula para cada piso si TODAS
+    # sus combinaciones cumplen Mu_equiv/Cap_ultima ≤ 1. Esto se usará para:
+    #   - Columna "Flex." del resumen por piso.
+    #   - Ajustar el estado global cuando solo la flexión interna marcaba NO CUMPLE.
+    pm_ok_by_piso: dict[int, bool] = {}
+    if df_etabs is not None and not df_etabs.empty and pp is not None:
+        try:
+            asignaciones = read_csv(pp, "muro_asignaciones")
+        except Exception:
+            asignaciones = []
+        asig_muro = next((a for a in asignaciones if (a.get("muro") or "").strip() == nombre), None)
+        nom_name = (asig_muro.get("Diagrama_Nominal") or "").strip() if asig_muro else ""
+        ult_name = (asig_muro.get("Diagrama_Ultimo") or "").strip() if asig_muro else ""
+        if not ult_name:
+            ult_name = nom_name
+        if nom_name and ult_name and asig_muro:
+            diagramas = read_json(pp, "diagramas.json") or {}
+            pts_ult = diagramas.get(f"{ult_name}_ultimo") or diagramas.get(f"{ult_name}_nominal")
+            if pts_ult:
+                from axis.columnas.analysis import InteractionSurface
+                surface_ult = InteractionSurface(pts_ult)
+                # Mapeo Story -> número de piso (1..n) alineado con result["pisos"]
+                stories_uniq = sorted(
+                    df_etabs["Story"].astype(str).unique(),
+                    key=lambda s: int("".join(c for c in s if c.isdigit()) or 0),
+                )
+                story_to_piso = {s: i for i, s in enumerate(stories_uniq, 1)}
+                for _, row in df_etabs.iterrows():
+                    story_name = str(row["Story"])
+                    piso_n = story_to_piso.get(story_name)
+                    if not piso_n:
+                        continue
+                    Pu = float(row["P"])
+                    M2 = float(row["M2"])
+                    M3 = float(row["M3"])
+                    mu_equiv = math.sqrt(M2 * M2 + M3 * M3)
+                    angle_deg = math.degrees(math.atan2(M2, M3))
+                    if angle_deg < 0:
+                        angle_deg += 360.0
+                    try:
+                        cap_ultima = surface_ult.get_moment_nominal(Pu, angle_deg)
+                    except Exception:
+                        cap_ultima = 0.0
+                    if cap_ultima <= 0 and mu_equiv > 0:
+                        cumple = False
+                    elif mu_equiv == 0:
+                        cumple = True
+                    else:
+                        cumple = (mu_equiv / cap_ultima) <= 1.0
+                    prev = pm_ok_by_piso.get(piso_n, True)
+                    pm_ok_by_piso[piso_n] = prev and cumple
+
+    # Si todas las combinaciones P-M cumplen para todos los pisos (según TABLA 2),
+    # y el estado global era NO CUMPLE únicamente por flexión interna, se permite
+    # actualizar el estado global a CUMPLE.
+    if pm_ok_by_piso:
+        all_pm_ok = all(pm_ok_by_piso.get(int(p.get("piso", 0) or 0), True) for p in pisos)
+        if all_pm_ok:
+            ok_global = True
 
     # Si NO CUMPLE, mostrar resumen por piso (geom., flexión, corte, agrietamiento, junta)
     # Precalcular umbral y hm/lm para usar el mismo ρv efectivo que TABLA 8C (el resumen corre antes de 8C)
@@ -1239,18 +1307,24 @@ def _format_multi_output(
         for p in pisos:
             geom = p.get("geometry_ok") in (True, "True")
             flex = p.get("flexion_ok") in (True, "True")
+            # Si tenemos verificación P-M desde TABLA 2, usarla como criterio principal de flexión
+            if pm_ok_by_piso:
+                try:
+                    piso_n = int(p.get("piso", 0) or 0)
+                except (TypeError, ValueError):
+                    piso_n = 0
+                if piso_n in pm_ok_by_piso:
+                    flex = pm_ok_by_piso[piso_n]
             cort = p.get("corte_ok") in (True, "True")
             agri = p.get("cracking_ok") in (True, "True")
             vn_ok = p.get("vn_limit_ok") in (True, "True")
             # Junta: mismo criterio que TABLA 8D; usar mismo ρv efectivo que TABLA 8C (rv_min, rho_v_adopt)
             junta_ok_cell = "-"
             if p.get("junta_ok") is not None:
-                vu_cap_kg = float(p.get("Vu_cap") or 0.0)
                 raw = next((x for x in pisos_raw if str(x.get("piso")) == str(p.get("piso"))), {})
                 Pu_kg = abs(float(raw.get("Pu", 0) or 0.0)) * 1000.0
-                # ρv efectivo = mismo que TABLA 8C (aún no está _rho_v_eff porque 8C corre después)
-                Vu_cap_kg_p = p.get("Vu_cap", 0)
-                mayor_p = Vu_cap_kg_p >= umbral_res
+                vua_j = float(p.get("Vua_tabla4_max_kg") or p.get("Vua_sx_max_kg") or p.get("Vu_orig") or 0.0)
+                mayor_p = vua_j >= umbral_res
                 if not mayor_p:
                     rv_min_p = 0.0015
                 else:
@@ -1260,18 +1334,21 @@ def _format_multi_output(
                     rv_min_p = max(0.0025, 0.0025 + term_p)
                 rho_v_j = max(float(p.get("rho_v", 0.0)) or 0.0, rv_min_p)
                 Av = rho_v_j * Acw
-                Vn_j = min(1.0 * (Pu_kg + Av * fy), 0.2 * fc * Acw, 55.0 * Acw)
-                phi_vn_j = 0.75 * Vn_j
-                if vu_cap_kg > 0 and phi_vn_j < vu_cap_kg and Acw > 0 and fy > 0:
-                    num = vu_cap_kg / 0.75 - Pu_kg
+                _phij = _RNE_MUROS_CONST.PHI_JOINT_FRICTION
+                Nu_kg_r = float(p.get("Nu_junta_kg") or 0.0)
+                if Nu_kg_r <= 0:
+                    Nu_kg_r = 0.9 * Pu_kg
+                Vn_j = min(1.0 * (Nu_kg_r + Av * fy), 0.2 * fc * Acw, 55.0 * Acw)
+                phi_vn_j = _phij * Vn_j
+                if vua_j > 0 and phi_vn_j < vua_j and Acw > 0 and fy > 0:
+                    num = vua_j / _phij - Nu_kg_r
                     den = Acw * fy
                     if den > 0:
                         rho_v_j = max(rho_v_j, num / den)
                         Av = rho_v_j * Acw
-                        Vn_j = min(1.0 * (Pu_kg + Av * fy), 0.2 * fc * Acw, 55.0 * Acw)
-                        phi_vn_j = 0.75 * Vn_j
-                # Misma tolerancia que TABLA 8D
-                junta_ok_cell = "✓" if phi_vn_j >= vu_cap_kg * (1.0 - 1e-9) else "✗"
+                        Vn_j = min(1.0 * (Nu_kg_r + Av * fy), 0.2 * fc * Acw, 55.0 * Acw)
+                        phi_vn_j = _phij * Vn_j
+                junta_ok_cell = "✓" if phi_vn_j >= vua_j * (1.0 - 1e-9) else "✗"
             junta_ok = junta_ok_cell == "✓" if p.get("junta_ok") is not None else True
             piso_ok = geom and flex and cort and (p.get("cracking_ok") is not False) and vn_ok and junta_ok
             resumen.append({
@@ -1509,6 +1586,7 @@ def _format_multi_output(
 
             # Actualizar Vu_cap por piso usando el MAYOR "Vu capac. (Tn)" de TABLA 4
             max_vu_cap_kg_by_piso: dict[int, float] = {}
+            max_vua_kg_by_piso: dict[int, float] = {}
             for row in tabla3_rows:
                 story_name = str(row.get("Piso", ""))
                 piso_num = story_to_piso.get(story_name)
@@ -1522,6 +1600,13 @@ def _format_multi_output(
                 prev = max_vu_cap_kg_by_piso.get(piso_num, 0.0)
                 if vu_kg > prev:
                     max_vu_cap_kg_by_piso[piso_num] = vu_kg
+                try:
+                    vua_tn = float(row.get("Vua (Tn)", 0) or 0)
+                except (TypeError, ValueError):
+                    vua_tn = 0.0
+                vua_kg = abs(vua_tn) * 1000.0
+                if vua_kg > max_vua_kg_by_piso.get(piso_num, 0.0):
+                    max_vua_kg_by_piso[piso_num] = vua_kg
 
             # Sobrescribir Vu_cap en 'pisos' con el máximo por piso
             if max_vu_cap_kg_by_piso:
@@ -1529,6 +1614,24 @@ def _format_multi_output(
                     piso_n = int(p.get("piso", 0) or 0)
                     if piso_n in max_vu_cap_kg_by_piso:
                         p["Vu_cap"] = max_vu_cap_kg_by_piso[piso_n]
+                    if piso_n in max_vua_kg_by_piso:
+                        p["Vua_tabla4_max_kg"] = max_vua_kg_by_piso[piso_n]
+
+        # Ajuste especial para sótanos: en pisos 1..n_sotanos se toma Vu_cap = Vu de análisis (Vua)
+        if n_sotanos is not None and n_sotanos > 0:
+            for p in pisos:
+                piso_n = int(p.get("piso", 0) or 0)
+                if piso_n <= n_sotanos:
+                    vua_kg = (
+                        p.get("Vua_tabla4_max_kg")
+                        or p.get("Vua_sx_max_kg")
+                        or p.get("Vu_orig")
+                    )
+                    if vua_kg is not None:
+                        try:
+                            p["Vu_cap"] = float(vua_kg)
+                        except (TypeError, ValueError):
+                            continue
 
         lines.append("")
 
@@ -1902,14 +2005,16 @@ def _format_multi_output(
         })
     lines.append(format_table(t8b, columns=list(t8b[0].keys()), header_map=_h))
 
-    # ── TABLA 8C: ACERO MÍNIMO (11.10.7 y 11.10.8); columnas como referencia ──
+    # ── TABLA 8C: ACERO MÍNIMO (11.10.7 y 11.10.8); Vua = mayor columna Vua TABLA 4 por piso ──
     lines += ["", "=" * 70, "  TABLA 8C: VERIFICACIÓN DE ACERO DISTRIBUIDO MÍNIMO POR PISO (11.10.7 y 11.10.8 RNE E.060)", "=" * 70, ""]
+    lines.append("  (Criterio: Vua máximo por piso según TABLA 4 — no Vu capac. amplificado.)")
+    lines.append("")
     umbral = 0.27 * sqrt_fc * Acw
     hm_lm_global = H_total / lm if lm > 0 else 0
     t8c = []
     for p in pisos:
-        Vu_cap_kg = p.get("Vu_cap", 0)
-        mayor = Vu_cap_kg >= umbral
+        Vua_kg = float(p.get("Vua_tabla4_max_kg") or p.get("Vua_sx_max_kg") or p.get("Vu_orig") or 0.0)
+        mayor = Vua_kg >= umbral
         # ρh adoptado = mayor entre el calculado y el mínimo normativo (11.10.7/11.10.8)
         if not mayor:
             caso = 1
@@ -1934,7 +2039,7 @@ def _format_multi_output(
 
         t8c.append({
             "Nivel": p.get("piso"),
-            "Vu (Tn)": f"{Vu_cap_kg/1000:.2f}",
+            "Vua (Tn)": f"{Vua_kg/1000:.2f}",
             "0.27√f'c·Acw (Tn)": f"{umbral/1000:.1f}",
             "Caso": caso,
             "ρh mín.": f"{rh_min:.4f}",
@@ -1949,38 +2054,43 @@ def _format_multi_output(
     has_joints = any(p.get("junta_ok") is not None for p in pisos)
     if has_joints:
         lines += ["", "=" * 70, "  TABLA 8D: JUNTAS DE CONSTRUCCIÓN - CORTE POR FRICCIÓN (21.9.8 + 11.7.4.3 RNE E.060)", "=" * 70, ""]
+        lines.append("  (Nu = 0,9×Pcm; Pcm = máx.|P| Pier Forces Dead+CM, Location Bottom.)")
+        lines.append("  (Vua TABLA 4 — φVn_junta ≥ Vua; φ=0,85 11.7.4.3.)")
+        lines.append("")
         t8d = []
         for p in pisos:
             if p.get("junta_ok") is not None:
-                vu_cap_kg = float(p.get("Vu_cap") or 0.0)
-                vu_cap_tn = vu_cap_kg / 1000.0
+                vua_kg = float(p.get("Vua_tabla4_max_kg") or p.get("Vua_sx_max_kg") or p.get("Vu_orig") or 0.0)
+                vua_tn = vua_kg / 1000.0
                 raw = next((x for x in pisos_raw if str(x.get("piso")) == str(p.get("piso"))), {})
                 Pu_tn = float(raw.get("Pu", 0) or 0.0)
-                Pu_kg = Pu_tn * 1000.0
+                Nu_kg = float(p.get("Nu_junta_kg") or 0.0)
+                pcm_tn = float(p.get("Pcm_junta_tn") or 0.0)
+                if Nu_kg <= 0:
+                    Nu_kg = 0.9 * abs(Pu_tn) * 1000.0
+                    pcm_tn = abs(Pu_tn) if pcm_tn <= 0 else pcm_tn
                 # ρv adoptado efectivo desde TABLA 8C (o valor original si no existe)
                 rho_v_eff = float(p.get("_rho_v_eff", p.get("rho_v", 0.0)) or 0.0)
                 # Empezar usando ρv efectivo
                 rho_v_joint = rho_v_eff
 
+                _phij8d = _RNE_MUROS_CONST.PHI_JOINT_FRICTION
+
                 def _calc_joint(rho_v_val: float) -> tuple[float, float, float]:
                     """Devuelve (Av_cm2, Vn_kg, phi_Vn_kg) para un ρv dado."""
                     mu_val_local = 1.0
                     Av_local = rho_v_val * Acw
-                    Vn_base_local = mu_val_local * (abs(Pu_kg) + Av_local * fy)
+                    Vn_base_local = mu_val_local * (Nu_kg + Av_local * fy)
                     Vn_lim1_local = 0.2 * fc * Acw
                     Vn_lim2_local = 55.0 * Acw
                     Vn_kg_local = min(Vn_base_local, Vn_lim1_local, Vn_lim2_local)
-                    phi_vn_kg_local = 0.75 * Vn_kg_local
+                    phi_vn_kg_local = _phij8d * Vn_kg_local
                     return Av_local, Vn_kg_local, phi_vn_kg_local
 
                 Av_val, Vn_kg, phi_vn_kg = _calc_joint(rho_v_joint)
 
-                # Si con ρv adoptado no alcanza, subir ρv hasta que (idealmente) φVn ≥ Vu_cap
-                if vu_cap_kg > 0 and phi_vn_kg < vu_cap_kg and Acw > 0 and fy > 0:
-                    # Ignorando límites de concreto para estimar el ρv requerido:
-                    #   0.75 * (|Pu| + ρv * Acw * fy) >= Vu_cap
-                    #   => ρv_req >= (Vu_cap/0.75 - |Pu|) / (Acw*fy)
-                    num = vu_cap_kg / 0.75 - abs(Pu_kg)
+                if vua_kg > 0 and phi_vn_kg < vua_kg and Acw > 0 and fy > 0:
+                    num = vua_kg / _phij8d - Nu_kg
                     den = Acw * fy
                     if den > 0:
                         rho_v_req = max(rho_v_joint, num / den)
@@ -1991,16 +2101,17 @@ def _format_multi_output(
                 mu_val = 1.0
                 phi_vn_joint_tn = phi_vn_kg / 1000.0
                 # ratio se mantiene solo para verificación interna, ya no se muestra en tabla
-                ratio = (phi_vn_joint_tn / vu_cap_tn) if vu_cap_tn > 0 else 0.0  # noqa: F841
+                ratio = (phi_vn_joint_tn / vua_tn) if vua_tn > 0 else 0.0  # noqa: F841
                 t8d.append({
                     "Nivel": p.get("piso"),
-                    "Vu_cap (Tn)": f"{vu_cap_tn:.2f}",
+                    "Vua (Tn)": f"{vua_tn:.2f}",
                     "φVn_junta (Tn)": f"{phi_vn_joint_tn:.2f}",
                     "μ": f"{mu_val:.2f}",
-                    "Pu (Tn)": f"{Pu_tn:.2f}",
+                    "Pcm (Tn)": f"{pcm_tn:.2f}",
+                    "Nu (Tn)": f"{Nu_kg/1000:.2f}",
                     "Av (cm²)": f"{Av_val:.2f}",
                     "ρv junta": f"{rho_v_joint:.4f}",
-                    "Junta OK": "✓" if phi_vn_kg >= vu_cap_kg * (1.0 - 1e-9) else "✗",
+                    "Junta OK": "✓" if phi_vn_kg >= vua_kg * (1.0 - 1e-9) else "✗",
                 })
         if t8d:
             lines.append(
@@ -2008,10 +2119,11 @@ def _format_multi_output(
                     t8d,
                     columns=[
                         "Nivel",
-                        "Vu_cap (Tn)",
+                        "Vua (Tn)",
                         "φVn_junta (Tn)",
                         "μ",
-                        "Pu (Tn)",
+                        "Pcm (Tn)",
+                        "Nu (Tn)",
                         "Av (cm²)",
                         "ρv junta",
                         "Junta OK",
@@ -2302,6 +2414,73 @@ def handle_muro_multi_report(args: list[str]) -> str:
 # ETABS -> IMPORTAR SOLICITACIONES (PASO 2)
 # ===================================================================
 
+def _nu_junta_desde_dead_cm(
+    pier_name: str,
+    stories_sorted: list,
+) -> dict[int, tuple[float, float]]:
+    """Pcm y Nu = 0,9·Pcm por piso para juntas (11.7.4.3).
+
+    Pier Forces: Pier, Location Bottom, Output Case en {Dead, CM} (nom. ETABS).
+    Por cada Story: Pcm (Tn) = máximo |P| entre filas Dead/CM.
+    Nu_kg = 0,9 × Pcm_tn × 1000.  Claves: número de piso 1..n alineado con stories_sorted.
+    """
+    df = get_table("Pier Forces", log=True)
+    if df is None or df.empty:
+        return {}
+    df = df.copy()
+    cols_orig = list(df.columns)
+    col_lower = {str(c).strip().lower(): c for c in cols_orig}
+
+    def find_col(preferred, keywords=None):
+        for p in preferred:
+            if p in cols_orig:
+                return p
+            if p.lower() in col_lower:
+                return col_lower[p.lower()]
+        if keywords:
+            for c, orig in col_lower.items():
+                if any(k in c for k in keywords):
+                    return orig
+        return None
+
+    c_story = find_col(["Story", "StoryLabel"], ["story"])
+    c_pier = find_col(["Pier", "PierLabel"], ["pier"])
+    c_case = find_col(["Output Case", "OutputCase"], ["output", "case"])
+    c_loc = find_col(["Location", "Loc", "Point"], ["location", "loc"])
+    c_p = find_col(["P", "P1"], ["axial"])
+    if not c_story or not c_pier or not c_p or not c_case:
+        return {}
+
+    pier_f = str(pier_name).strip()
+    df = df[df[c_pier].astype(str).str.strip() == pier_f]
+    if df.empty:
+        return {}
+    if c_loc:
+        df = df[df[c_loc].astype(str).str.strip().str.lower() == "bottom"]
+    if df.empty:
+        return {}
+
+    cn = df[c_case].astype(str).str.strip().str.upper().str.replace(" ", "").str.replace("_", "")
+    # Dead load + CM (carga muerta) según nombres típicos ETABS
+    mask = cn.isin(["DEAD", "CM", "DEADLOAD", "D", "DL"])
+    if not mask.any():
+        mask = cn.str.contains("DEAD", na=False) | (cn == "CM")
+    df = df.loc[mask]
+    if df.empty:
+        return {}
+    df[c_p] = pd.to_numeric(df[c_p], errors="coerce")
+
+    out: dict[int, tuple[float, float]] = {}
+    for idx, story in enumerate(stories_sorted, 1):
+        sub = df[df[c_story].astype(str) == str(story)]
+        if sub.empty:
+            continue
+        pcm_tn = float(sub[c_p].abs().max())
+        nu_kg = 0.9 * pcm_tn * 1000.0
+        out[idx] = (pcm_tn, nu_kg)
+    return out
+
+
 def _filtrar_pier_forces(pier_name: str):
     """Filtra Pier Forces identico al procedimiento de Muros_Estructurales.
 
@@ -2443,39 +2622,29 @@ def _leer_story_definitions():
 
 
 def _max_vu_cap_por_piso_desde_combinaciones_sx(df, pp, nombre, R, pisos_raw, lm_cm, sismo_dir: str = "SX"):
-    """Máximo cortante de diseño Vu_cap por piso entre combinaciones SX (para diseño y TABLA 4).
+    """Máximo Vu_cap por piso (diseño a corte) y máximo Vua por piso (TABLA 4 / 11.10.7–11.10.8).
 
-    Lógica:
-      1) Usa diagrama nominal para obtener Mn (superficie de interacción).
-      2) Para cada combinación SX en el PRIMER piso:
-           H = Mua/(4·Vua)       [m]
-           L = max(H, lm, 2 pisos)  [m]
-         Lcrit = max(L) entre esas combinaciones.
-      3) Determina el piso_límite como el PRIMER piso cuyo tope acumulado ≥ Lcrit
-         (redondeo hacia arriba).
-      4) Para cada combinación SX y piso:
-           - Si piso <= piso_límite: Vu_cap = Vua * min(Mn/Mua, R)
-           - Si piso > piso_límite: Vu_cap = Vua
-      5) Para cada piso: devuelve el MÁXIMO Vu_cap (kg) entre sus combinaciones SX.
+    Vu_cap: mayor ``Vua·min(Mn/Mua,R)`` (o Vua sobre altura crítica), entre combinaciones SX.
+    Vua_max: mayor |V2| (Tn→kg) entre combinaciones SX del mismo piso (columna Vua de TABLA 4).
 
-    Retorna dict piso_num -> Vu_cap en kg, o {} si falta info.
+    Retorna (dict piso→Vu_cap kg, dict piso→Vua_max kg); ({},{}) si falta info.
     """
     import math
     if pp is None:
-        return {}
+        return {}, {}
 
     # Diagrama nominal asignado al muro
     asignaciones = read_csv(pp, "muro_asignaciones")
     asig_muro = next((a for a in asignaciones if (a.get("muro") or "").strip() == nombre), None)
     if not asig_muro:
-        return {}
+        return {}, {}
     nom_name = (asig_muro.get("Diagrama_Nominal") or "").strip()
     if not nom_name:
-        return {}
+        return {}, {}
     diagramas = read_json(pp, "diagramas.json") or {}
     pts_nom = diagramas.get(f"{nom_name}_nominal") or diagramas.get(f"{nom_name}_ultimo")
     if not pts_nom:
-        return {}
+        return {}, {}
     from axis.columnas.analysis import InteractionSurface
     surface_nom = InteractionSurface(pts_nom)
 
@@ -2490,12 +2659,12 @@ def _max_vu_cap_por_piso_desde_combinaciones_sx(df, pp, nombre, R, pisos_raw, lm
     sx_cases = [f"1.25(CM+CV)+{sismo_tag}", f"0.9CM+{sismo_tag}"]
     df_sx = df[df["Output Case"].astype(str).str.strip().isin(sx_cases)]
     if df_sx.empty:
-        return {}
+        return {}, {}
 
     # Geometría global para altura crítica (usamos pisos_raw para hm)
     sorted_raw = sorted(pisos_raw, key=lambda x: int(x.get("piso", 0)))
     if not sorted_raw:
-        return {}
+        return {}, {}
     height_2_floors_m = sum(float(pr.get("hm", 0)) for pr in sorted_raw[:2]) / 100.0
     lm_m = lm_cm / 100.0
 
@@ -2569,7 +2738,17 @@ def _max_vu_cap_por_piso_desde_combinaciones_sx(df, pp, nombre, R, pisos_raw, lm
         if vu_cap_kg > prev:
             max_by_piso[piso_num] = vu_cap_kg
 
-    return max_by_piso
+    max_vua_by_piso: dict[int, float] = {}
+    for _, row in df_sx.iterrows():
+        story_s = str(row["Story"])
+        piso_n = story_to_piso.get(story_s)
+        if not piso_n:
+            continue
+        vua_kg = abs(float(row["V2"])) * 1000.0
+        if vua_kg > max_vua_by_piso.get(piso_n, 0.0):
+            max_vua_by_piso[piso_n] = vua_kg
+
+    return max_by_piso, max_vua_by_piso
 
 
 def _envolvente_por_piso(df, nombre, alturas, elevaciones):
@@ -2705,7 +2884,7 @@ def handle_muro_etabs_import(args: list[str]) -> str:
 # ===================================================================
 
 def handle_muro_etabs_diseno(args: list[str]) -> str:
-    """cas muro etabs-diseno <nombre> <lm> <t> <fc> <fy> <fyt> <pier> [DEFORMACION|ESFUERZO] [delta_u] [joint_Av]
+    """cas muro etabs-diseno <nombre> <lm> <t> <fc> <fy> <fyt> <pier> [DEFORMACION|ESFUERZO] [delta_u] [joint_Av] [R] [SOTANO n_pisos]
 
     Atajo: importa + disena en un paso (usa mismos filtros que etabs-import).
     """
@@ -2713,7 +2892,7 @@ def handle_muro_etabs_diseno(args: list[str]) -> str:
     if len(args) < 7:
         raise InvalidInput(
             "Uso: cas muro etabs-diseno <nombre> <lm> <t> <fc> <fy> <fyt> <pier> "
-            "[DEFORMACION|ESFUERZO] [delta_u] [joint_Av] [R]")
+            "[DEFORMACION|ESFUERZO] [delta_u] [joint_Av] [R] [SOTANO n_pisos]")
     try:
         nombre = args[0]
         lm = float(args[1]); t_val = float(args[2])
@@ -2722,26 +2901,57 @@ def handle_muro_etabs_diseno(args: list[str]) -> str:
     except ValueError:
         raise InvalidInput("Parametros numericos invalidos.")
 
-    b_method = None; delta_u = None; j_Av = None; R_val = None
-    for a in args[7:]:
+    b_method = None
+    delta_u = None
+    j_Av = None
+    R_val = None
+    n_sotanos: int | None = None
+
+    i = 7
+    while i < len(args):
+        a = args[i]
         au = a.upper()
         if au in ("DEFORMACION", "ESFUERZO"):
             b_method = au
-        elif delta_u is None:
+            i += 1
+            continue
+        if au == "SOTANO":
+            if i + 1 >= len(args):
+                raise InvalidInput(
+                    "Uso: cas muro etabs-diseno ... SOTANO <n_pisos>")
+            if n_sotanos is not None:
+                raise InvalidInput("Parametro SOTANO repetido.")
+            try:
+                n_sotanos = int(args[i + 1])
+            except ValueError:
+                raise InvalidInput("n_pisos de SOTANO debe ser entero.")
+            if n_sotanos <= 0:
+                raise InvalidInput("n_pisos de SOTANO debe ser mayor que cero.")
+            i += 2
+            continue
+        if delta_u is None:
             try:
                 delta_u = float(a)
+                i += 1
+                continue
             except ValueError:
                 pass
-        elif j_Av is None:
+        if j_Av is None:
             try:
                 j_Av = float(a)
+                i += 1
+                continue
             except ValueError:
                 pass
-        elif R_val is None:
+        if R_val is None:
             try:
                 R_val = float(a)
+                i += 1
+                continue
             except ValueError:
                 pass
+        # Token no reconocido: se ignora para compatibilidad hacia atrás
+        i += 1
 
     # Determinar dirección de sismo predominante a partir del nombre del pier.
     # Por compatibilidad hacia atrás, si no se detecta 'Y' se asume 'SX'.
@@ -2757,9 +2967,21 @@ def handle_muro_etabs_diseno(args: list[str]) -> str:
     df, pier_f = _filtrar_pier_forces(pier_name)
     alturas, elevaciones = _leer_story_definitions()
     pisos_raw = _envolvente_por_piso(df, nombre, alturas, elevaciones)
+    stories_in_df = df["Story"].astype(str).unique().tolist()
+    if elevaciones:
+        stories_sorted_ed = sorted(stories_in_df, key=lambda s: elevaciones.get(s, 0.0))
+    else:
+        try:
+            stories_sorted_ed = sorted(
+                stories_in_df,
+                key=lambda s: float("".join(ch for ch in s if ch.isdigit() or ch == ".") or "0"),
+            )
+        except Exception:
+            stories_sorted_ed = sorted(stories_in_df)
+    nu_junta_por_piso = _nu_junta_desde_dead_cm(pier_name, stories_sorted_ed)
 
     R = R_val if R_val is not None else 6.0
-    max_vu_cap_por_piso_kg = _max_vu_cap_por_piso_desde_combinaciones_sx(
+    max_vu_cap_por_piso_kg, max_vua_por_piso_kg = _max_vu_cap_por_piso_desde_combinaciones_sx(
         df, pp, nombre, R, pisos_raw, lm, sismo_dir=sismo_dir
     )
 
@@ -2775,6 +2997,16 @@ def handle_muro_etabs_diseno(args: list[str]) -> str:
         }
         if max_vu_cap_por_piso_kg and piso_num in max_vu_cap_por_piso_kg:
             row["Vu_cap"] = max_vu_cap_por_piso_kg[piso_num]
+        if max_vua_por_piso_kg and piso_num in max_vua_por_piso_kg:
+            row["Vua_sx_max_kg"] = max_vua_por_piso_kg[piso_num]
+        # Si el piso es sotano (1..n_sotanos), tomar Vu_cap igual a Vua (cortante de analisis)
+        if n_sotanos is not None and piso_num <= n_sotanos:
+            if "Vua_sx_max_kg" in row:
+                row["Vu_cap"] = row["Vua_sx_max_kg"]
+        if piso_num in nu_junta_por_piso:
+            pcm_tn, nu_kg = nu_junta_por_piso[piso_num]
+            row["Nu_junta_kg"] = nu_kg
+            row["Pcm_junta_tn"] = pcm_tn
         pisos_data.append(row)
 
     data = {
@@ -2790,6 +3022,8 @@ def handle_muro_etabs_diseno(args: list[str]) -> str:
         data["joint_Av"] = j_Av
     if R_val is not None:
         data["R"] = R_val
+    if n_sotanos is not None:
+        data["n_sotanos"] = n_sotanos
 
     result = run("diseno", "muro_multi", data)
 
@@ -2844,12 +3078,14 @@ def handle_muro_etabs_diseno(args: list[str]) -> str:
         fieldnames=["Story", "Output Case", "P", "V2", "V3", "T", "M2", "M3"],
     )
 
+    n_nu = sum(1 for r in pisos_data if r.get("Nu_junta_kg"))
     header = (
         f"Importado desde ETABS: Pier '{pier_f}', {len(pisos_data)} pisos\n"
-        f"Filtros: Location=bottom, Combos=1.4CM+1.7CV / 1.25(CM+CV)+SX/SY / 0.9CM+SX/SY\n\n"
+        f"Filtros: Location=bottom, Combos=1.4CM+1.7CV / 1.25(CM+CV)+SX/SY / 0.9CM+SX/SY\n"
+        f"Juntas (TABLA 8D): Nu=0,9×Pcm desde Pier Forces casos Dead+CM, Bottom ({n_nu}/{len(pisos_data)} pisos).\n\n"
     )
     wdef = {"lm": lm, "t": t_val, "fc": fc, "fy": fy, "fyt": fyt}
-    return header + _format_multi_output(
+    full_report = header + _format_multi_output(
         result,
         pisos_raw,
         wdef,
@@ -2857,4 +3093,61 @@ def handle_muro_etabs_diseno(args: list[str]) -> str:
         pier_f=pier_f,
         pp=pp,
         sismo_dir=sismo_dir,
+        n_sotanos=n_sotanos,
     )
+
+    # Generar .md y .docx en results/ (igual que multi-report)
+    texto = _strip_ansi(full_report)
+    md_partes = [
+        "# REPORTE DE DISEÑO MULTIPISO DE MUROS (RNE E.060)\n",
+        f"## Muro {nombre}\n\n```text\n{texto}\n```",
+    ]
+    imagen_path_str = None
+    try:
+        from axis.cli.pm_plotter import save_superficie_interaccion
+        diagramas = read_json(pp, "diagramas.json") or {}
+        asignaciones = read_csv(pp, "muro_asignaciones")
+        asig_muro = next((a for a in asignaciones if (a.get("muro") or "").strip() == nombre), None)
+        if asig_muro:
+            nom_sec = (asig_muro.get("Diagrama_Nominal") or "").strip()
+            ult_sec = (asig_muro.get("Diagrama_Ultimo") or "").strip() or nom_sec
+            section_name = ult_sec or nom_sec
+        else:
+            section_name = nombre
+        key = f"{section_name}_ultimo"
+        puntos = diagramas.get(key) or diagramas.get(f"{section_name}_nominal")
+        puntos_esfuerzo = [
+            {"P": float(r.get("P", 0)), "M2": float(r.get("M2", 0)), "M3": float(r.get("M3", 0))}
+            for r in comb_rows
+        ] if comb_rows else None
+        if puntos:
+            from pathlib import Path as _P
+            results_dir_img = _P(pp) / "results"
+            img_path = results_dir_img / f"muro_multi_{_sanitize(nombre)}_pm.png"
+            subtit = f"{nombre} — diagrama {section_name}, {len(puntos)} pts"
+            if puntos_esfuerzo:
+                subtit += f" — {len(puntos_esfuerzo)} combinaciones"
+            save_superficie_interaccion(
+                puntos, str(img_path),
+                titulo="Superficie de Interacción P-M2-M3",
+                subtitulo=subtit,
+                puntos_esfuerzo=puntos_esfuerzo,
+            )
+            imagen_path_str = str(img_path)
+            md_partes.append(f"## Superficie de interacción – {nombre}\n\n```text\nImagen: {img_path.name}\n```")
+    except Exception:
+        pass
+
+    from pathlib import Path
+    results_dir = Path(pp) / "results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    base = f"muros_multi_reporte_{_sanitize(nombre)}"
+    md_path = results_dir / f"{base}.md"
+    docx_path = results_dir / f"{base}.docx"
+    md_path.write_text("\n\n".join(md_partes), encoding="utf-8")
+    imgs = [(nombre, imagen_path_str)] if imagen_path_str else []
+    docx_ok = _generar_docx_muros(md_partes, str(docx_path), imgs)
+    file_msg = f"Reporte guardado en results/: '{base}.md'"
+    if docx_ok:
+        file_msg += f", '{base}.docx'"
+    return full_report + "\n\n" + file_msg

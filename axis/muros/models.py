@@ -138,6 +138,11 @@ class StoryData:
     Mn_manual: Optional[float] = None  # kg-cm
     c: Optional[float] = None          # cm
     Vu_cap_demand: Optional[float] = None  # kg; si se da, diseño a corte usa este en vez de Vua*min(Mn/Mua,R)
+    # Máx. |Vua| (kg) entre combinaciones SX del mismo piso (TABLA 4); 11.10.7/11.10.8 vs 0.27√f'c·Acw
+    Vua_sx_max_kg: Optional[float] = None
+    # Junta fricción: Nu = 0,9 × Pcm (kg); Pcm = máx.|P| Dead+CM Bottom en Pier Forces
+    Nu_junta_kg: Optional[float] = None
+    Pcm_junta_tn: Optional[float] = None  # solo informe
 
 
 @dataclass
@@ -148,6 +153,9 @@ class StoryDesignResult:
     requires_boundary: bool = False
     boundary_height: Optional[float] = None
     largo_borde: Optional[float] = None
+    vua_sx_max_kg: Optional[float] = None  # máx. Vua TABLA 4 (11.10.7/8); informe TABLA 8C
+    nu_junta_kg: Optional[float] = None
+    pcm_junta_tn: Optional[float] = None
 
 
 @dataclass

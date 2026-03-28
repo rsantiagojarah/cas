@@ -94,15 +94,18 @@ HELP_MAP = {
         "cas muro multi <nombre> [DEFORMACION|ESFUERZO] [delta_u] [joint_Av]\n"
         "  Diseno multipiso completo E.060 (borde global con H_total).\n"
         "cas muro multi-results [nm]  Ver resultados multipiso.\n"
-        "cas muro etabs-diseno <nombre> <lm> <t> <fc> <fy> <fyt> <pier> [metodo] [du] [Av]\n"
-        "  Importar ETABS (Pier Forces + Story Definitions) y diseno multipiso."
+        "cas muro etabs-diseno <nombre> <lm> <t> <fc> <fy> <fyt> <pier> [metodo] [du] [Av] [R] [SOTANO n_pisos]\n"
+        "  Importar ETABS (Pier Forces + Story Definitions) y diseno multipiso.\n"
+        "  Si se indica SOTANO n_pisos, en esos pisos se toma Vu_cap = Vu (cortante de analisis)."
     ),
     "sismo": (
         "cas sismo <sentido> Z U perfil R Ia Ip Material  - Análisis E.030\n"
         "  sentido=X|Y, Z=1-4, U=A-D, perfil=S0-S4, R=8|7|6|3, Material=concreto|acero|albañileria\n"
         "  Ej: cas sismo X 3 C S2 8 1 1 concreto.\n"
         "  Rapido: cas sismo rapido X 3 C S2 8 concreto rb,masa tors\n"
-        "  Irregularidades: cas sismo irregularidades | cas sismo irregularidades calcular rb tors"
+        "  Irregularidades: cas sismo irregularidades | cas sismo irregularidades calcular rb tors\n"
+        "  Separacion legacy: cas sismo separacion <h> [da db]\n"
+        "  Nuevo flujo: cas sismo 2026 <sentido> Z U perfil R Ia Ip Material"
     ),
     "irregular": (
         "cas irregular <tipo> X|Y <datos...>  - Verificacion E.030 (Tablas 8 y 9)\n"
@@ -259,10 +262,15 @@ HELP_LINES = [
     "",
     "Sismo E.030:",
     "  sismo <sentido> Z U perfil R Ia Ip Material     Ej: X 3 C S2 8 1 1 concreto",
+    "  sismo 2026 <sentido> Z U perfil R Ia Ip Material",
     "  sismo rapido <sentido> Z U perfil R Material <cod_altura> <cod_planta>",
+    "  sismo 2026 rapido <sentido> Z U perfil R Material <cod_altura> <cod_planta>",
     "  sismo irregularidades                           Ver codigos Ia/Ip (tablas 8 y 9)",
+    "  sismo 2026 irregularidades                      Ver codigos Ia/Ip (E.030 2026)",
     "  sismo results                                  Ver resultados",
-    "  sismo separacion <h> [da db]                    Separación edificios",
+    "  sismo 2026 results                              Ver resultados 2026",
+    "  sismo separacion <h> [da db]                    Separación edificios legacy",
+    "  sismo 2026 separacion <h> <Z> <perfil|S> [da db] Separación edificios 2026",
     "",
     "Diseno de Columnas (E.060):",
     "  columna props <UN> <k> <lu> <Ix> <Iy> <Ag> <Bd> [fc] [fy]",

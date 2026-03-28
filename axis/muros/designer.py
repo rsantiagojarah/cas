@@ -198,6 +198,7 @@ def design_shear(
     R: float | None = None,
     vu_cap_demand: float | None = None,
     hm_for_Vc: float | None = None,
+    vu_for_min_steel: float | None = None,
 ) -> tuple[ShearResult, Reinforcement]:
     """Diseño completo a corte con amplificación por capacidad.
 
@@ -205,6 +206,7 @@ def design_shear(
     Factor = min(Mn/Mua, R); R por defecto desde constantes.
     Si vu_cap_demand está dado (kg), se usa como Vu_cap en vez de calcularlo.
     Si hm_for_Vc está dado (cm, altura desde nivel hasta tope), se usa para αc en Vc.
+    vu_for_min_steel: cortante para 11.10.7/11.10.8 (ej. máx. Vua TABLA 4); si None se usa Vu_cap (no recomendado).
     """
     Vu = abs(loads.Vu)
     Mua = abs(loads.Mu)
@@ -218,11 +220,10 @@ def design_shear(
     Vn = Vc + Vs
     phi_Vn = C.PHI_SHEAR * Vn
 
-    # Cuantía mínima de acuerdo con 11.10.7 / 11.10.8 (mismo criterio que TABLA 8C):
-    #   Caso 1 (Vu_cap < 0.27√f'c·Acw)  ->  ρh mín = 0.002
-    #   Caso 2 (Vu_cap ≥ 0.27√f'c·Acw) ->  ρh mín = 0.0025
+    # 11.10.7 / 11.10.8: comparar con Vua (cortante de análisis), no con Vu_cap amplificado.
     threshold = C.SHEAR_COEF_1 * mat.sqrt_fc * geo.Acw
-    rho_h_min = 0.0025 if Vu_cap >= threshold else 0.002
+    vu_norm = vu_for_min_steel if vu_for_min_steel is not None else Vu_cap
+    rho_h_min = 0.0025 if vu_norm >= threshold else 0.002
 
     if phi_Vn < Vu_cap:
         rho_new = _required_rho_h(geo, mat, Vu_cap, Vc, rho_h_min)
@@ -390,19 +391,21 @@ def design_boundary(
 
 def verify_joint(
     geo: WallGeometry, mat: WallMaterials, loads: WallLoads,
-    Vu_cap: float, Av: float, mu: float = 1.0,
+    Vu_demand: float, Av: float, mu: float = 1.0,
+    Nu_kg: float | None = None,
 ) -> JointResult:
     """Verificación de juntas (Art. 11.7 / 21.9.8).
 
-    φVn = φ · μ · (Nu + Av · fy)
-    Con límites: Vn < 0.2 f'c·Ac  y  Vn < 55·Ac
+    Vn = μ·(Nu + Av·fy) con Nu = 0,9·Pcm (kg) si se da; si no, |Pu|.
+    φVn = 0,85·Vn (11.7.4.3). Topes: 0,2f'c·Ac, 55·Ac.
     """
-    Vn = mu * (abs(loads.Pu) + Av * mat.fy)
+    N = float(Nu_kg) if Nu_kg is not None else abs(loads.Pu)
+    Vn = mu * (N + Av * mat.fy)
     lim1 = C.JOINT_COEF_1 * mat.fc * geo.Acw
     lim2 = C.JOINT_COEF_2 * geo.Acw
     Vn = min(Vn, lim1, lim2)
-    phi_Vn = C.PHI_SHEAR * Vn
-    ok = phi_Vn >= Vu_cap
+    phi_Vn = C.PHI_JOINT_FRICTION * Vn
+    ok = phi_Vn >= Vu_demand
     return JointResult(Vn_joint=Vn, phi_Vn_joint=phi_Vn, ok=ok, Av=Av, mu=mu)
 
 
@@ -455,6 +458,8 @@ def design_wall(
     R: float | None = None,
     vu_cap_demand: float | None = None,
     hm_for_Vc: float | None = None,
+    vu_for_min_steel: float | None = None,
+    nu_junta_kg: float | None = None,
 ) -> WallDesignResult:
     """Ejecuta el flujo completo de diseño de un muro según RNE E.060.
 
@@ -483,30 +488,32 @@ def design_wall(
     shear, reinf = design_shear(
         geo, mat, loads, reinf, flex, R=R,
         vu_cap_demand=vu_cap_demand, hm_for_Vc=hm_for_Vc,
+        vu_for_min_steel=vu_for_min_steel,
     )
 
     # 8. Elementos de borde
     boundary = design_boundary(geo, mat, loads, reinf, boundary_method)
 
-    # 9. Juntas (mismo criterio que TABLA 8D: si con Av actual no alcanza, se puede subir Av hasta cumplir)
+    # 9. Juntas: φVn ≥ Vua (TABLA 4); no Vu_cap amplificado (coherente con TABLA 8D)
     joint = None
     Av_eff = reinf.rho_v * geo.Acw
+    vu_junta = vu_for_min_steel if vu_for_min_steel is not None else abs(loads.Vu)
+    N_j = float(nu_junta_kg) if nu_junta_kg is not None else abs(loads.Pu)
     if Av_eff > 0:
-        joint = verify_joint(geo, mat, loads, shear.Vu_cap, Av_eff, joint_mu)
+        joint = verify_joint(geo, mat, loads, vu_junta, Av_eff, joint_mu, Nu_kg=nu_junta_kg)
         if joint is not None and not joint.ok and geo.Acw > 0 and mat.fy > 0:
-            # Calcular Av requerido para φVn ≥ Vu_cap (igual que TABLA 8D)
-            Vn_req = shear.Vu_cap / C.PHI_SHEAR
+            Vn_req = vu_junta / C.PHI_JOINT_FRICTION
             lim1 = C.JOINT_COEF_1 * mat.fc * geo.Acw
             lim2 = C.JOINT_COEF_2 * geo.Acw
             Vn_max = min(lim1, lim2)
             if Vn_req <= Vn_max:
-                Av_req = (Vn_req / joint_mu - abs(loads.Pu)) / mat.fy
+                Av_req = (Vn_req / joint_mu - N_j) / mat.fy
                 Av_req = max(0.0, Av_req)
                 Av_use = max(Av_eff, Av_req)
-                Vn_j = joint_mu * (abs(loads.Pu) + Av_use * mat.fy)
+                Vn_j = joint_mu * (N_j + Av_use * mat.fy)
                 Vn_j = min(Vn_j, lim1, lim2)
-                phi_Vn_j = C.PHI_SHEAR * Vn_j
-                if phi_Vn_j >= shear.Vu_cap:
+                phi_Vn_j = C.PHI_JOINT_FRICTION * Vn_j
+                if phi_Vn_j >= vu_junta:
                     joint = JointResult(
                         Vn_joint=Vn_j, phi_Vn_joint=phi_Vn_j, ok=True,
                         Av=Av_use, mu=joint_mu,
@@ -667,6 +674,7 @@ def design_wall_multi_story(
         hm_desde_nivel_hasta_tope = sum(
             s.hm for s in sorted_stories if s.piso >= story.piso
         )
+        vu_min_steel = story.Vua_sx_max_kg if story.Vua_sx_max_kg is not None else abs(story.Vu)
         result = design_wall(
             nombre=f"{nombre}_P{story.piso}",
             geo=geo, mat=mat, loads=loads,
@@ -675,9 +683,14 @@ def design_wall_multi_story(
             R=R,
             vu_cap_demand=story.Vu_cap_demand,
             hm_for_Vc=hm_desde_nivel_hasta_tope,
+            vu_for_min_steel=vu_min_steel,
+            nu_junta_kg=story.Nu_junta_kg,
         )
         story_results.append(StoryDesignResult(
             piso=story.piso, result=result,
+            vua_sx_max_kg=story.Vua_sx_max_kg,
+            nu_junta_kg=story.Nu_junta_kg,
+            pcm_junta_tn=story.Pcm_junta_tn,
         ))
 
     # Auto-detectar metodo de borde

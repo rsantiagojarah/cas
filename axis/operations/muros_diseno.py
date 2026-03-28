@@ -59,6 +59,7 @@ def diseno_muro(data: dict) -> dict:
         boundary_method=b_method,
         joint_Av=j_Av,
         joint_mu=j_mu,
+        vu_for_min_steel=abs(Vu),
     )
 
     return _serialize(result)
@@ -89,6 +90,9 @@ def diseno_muro_multi(data: dict) -> dict:
         mn = to_float(p.get("Mn_manual"), default=None) if p.get("Mn_manual") else None
         c_v = to_float(p.get("c"), default=None) if p.get("c") else None
         vu_cap = to_float(p["Vu_cap"]) if "Vu_cap" in p else None
+        vua_sx = to_float(p["Vua_sx_max_kg"]) if p.get("Vua_sx_max_kg") not in (None, "") else None
+        nu_j = to_float(p["Nu_junta_kg"]) if p.get("Nu_junta_kg") not in (None, "") else None
+        pcm_j = to_float(p["Pcm_junta_tn"]) if p.get("Pcm_junta_tn") not in (None, "") else None
         stories.append(StoryData(
             piso=int(p["piso"]),
             hm=to_float(p["hm"]),
@@ -97,6 +101,9 @@ def diseno_muro_multi(data: dict) -> dict:
             Mu=to_float(p["Mu"]),
             Mn_manual=mn, c=c_v,
             Vu_cap_demand=vu_cap,
+            Vua_sx_max_kg=vua_sx,
+            Nu_junta_kg=nu_j,
+            Pcm_junta_tn=pcm_j,
         ))
 
     delta_u = to_float(data.get("delta_u"), default=None) if data.get("delta_u") else None
@@ -124,6 +131,12 @@ def _serialize_multi(r, R: float | None = None) -> dict:
         s["piso"] = sr.piso
         s["borde_requiere_piso"] = sr.requires_boundary
         s["largo_borde"] = sr.largo_borde
+        if sr.vua_sx_max_kg is not None:
+            s["Vua_sx_max_kg"] = round(sr.vua_sx_max_kg, 2)
+        if sr.nu_junta_kg is not None:
+            s["Nu_junta_kg"] = round(sr.nu_junta_kg, 2)
+        if sr.pcm_junta_tn is not None:
+            s["Pcm_junta_tn"] = round(sr.pcm_junta_tn, 4)
         pisos.append(s)
 
     bg = r.boundary_global

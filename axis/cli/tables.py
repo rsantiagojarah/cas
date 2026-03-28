@@ -129,6 +129,8 @@ MUROS_HEADER_MAP = {
     "lc (cm)": "lc\n(cm)",
     "h (cm)": "h\n(cm)",
     "φPn (Tn)": "φPn\n(Tn)",
+    "Pcm (Tn)": "Pcm\n(Tn)",
+    "Nu (Tn)": "Nu\n(Tn)",
     "0.27√f'c·Acw (Tn)": "0.27√f'c\n·Acw\n(Tn)",
     "Caso": "Caso",
     "ρh mín.": "ρh\nmín.",

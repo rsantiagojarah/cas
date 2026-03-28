@@ -17,7 +17,7 @@ class RNE:
 
     # Factores de reducción φ
     PHI_FLEX: float = 0.9
-    PHI_SHEAR: float = 0.75
+    PHI_SHEAR: float = 0.85
 
     # Coeficientes de corte (Art. 11.10 y 21.9)
     SHEAR_COEF_1: float = 0.27        # umbral 0.27√f'c·Acw
@@ -39,7 +39,8 @@ class RNE:
     DEFORM_DENOM: float = 600.0       # C_lim = lm / [600·(δu/H)]
     DEFORM_RATIO_MIN: float = 0.005   # δu/H_total ≥ 0.005
 
-    # Juntas de construcción (Art. 11.7)
+    # Juntas de construcción (Art. 11.7.4.3 — corte por fricción)
+    PHI_JOINT_FRICTION: float = 0.85
     JOINT_COEF_1: float = 0.2         # Vn < 0.2 f'c · Ac
     JOINT_COEF_2: float = 55.0        # Vn < 55 · Ac
 
