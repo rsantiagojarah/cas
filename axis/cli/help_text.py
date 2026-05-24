@@ -77,11 +77,13 @@ HELP_MAP = {
         "  Pu:Tn, Vu:Tn, Mu:Tn-m, delta_u:cm, c:cm, Mn:Tn-m).\n"
         "cas muro data          Lista muros almacenados para diseño.\n"
         "cas muro remove <nm>   Elimina un muro de datos.\n"
-        "cas muro diseno [nombre] [DEFORMACION|ESFUERZO]\n"
+        "cas muro diseno [nombre] [DEFORMACION|ESFUERZO] [R]\n"
         "  Ejecuta diseño completo: espesor, flexión, agrietamiento, corte,\n"
-        "  elementos de borde (método auto o manual).\n"
+        "  elementos de borde (método auto o manual). R = factor de ductilidad E.030\n"
+        "  para amplificación por capacidad min(Mn/Mua,R); default 6.\n"
         "cas muro results [nm]          Ver resumen de resultados de diseno.\n"
-        "cas muro report [nm] [metodo]  Generar reporte Markdown/Word de diseno (piso unico).\n"
+        "cas muro report [nm] [metodo] [du] [Av] [R]\n"
+        "  Generar reporte Markdown/Word de diseno multipiso.\n"
         "cas muro results-delete <nm>   Borrar resultados de diseno (piso unico).\n"
         "\n"
         "DISENO MULTIPISO RNE E.060:\n"
@@ -91,12 +93,14 @@ HELP_MAP = {
         "  Agregar piso (hm:cm, Pu:Tn, Vu:Tn, Mu:Tn-m, Mn:Tn-m, c:cm).\n"
         "cas muro pisos [nombre]   Listar pisos definidos.\n"
         "cas muro del-piso <nm> <N>  Eliminar un piso.\n"
-        "cas muro multi <nombre> [DEFORMACION|ESFUERZO] [delta_u] [joint_Av]\n"
+        "cas muro multi <nombre> [DEFORMACION|ESFUERZO] [delta_u] [joint_Av] [R]\n"
         "  Diseno multipiso completo E.060 (borde global con H_total).\n"
+        "  R = factor de ductilidad E.030 (default 6).\n"
         "cas muro multi-results [nm]  Ver resultados multipiso.\n"
         "cas muro etabs-diseno <nombre> <lm> <t> <fc> <fy> <fyt> <pier> [metodo] [du] [Av] [R] [SOTANO n_pisos]\n"
         "  Importar ETABS (Pier Forces + Story Definitions) y diseno multipiso.\n"
-        "  Si se indica SOTANO n_pisos, en esos pisos se toma Vu_cap = Vu (cortante de analisis)."
+        "  R = factor de ductilidad E.030 (default 6). Si se indica SOTANO n_pisos,\n"
+        "  en esos pisos se toma Vu_cap = Vu (cortante de analisis)."
     ),
     "sismo": (
         "cas sismo <sentido> Z U perfil R Ia Ip Material  - Análisis E.030\n"
@@ -105,13 +109,18 @@ HELP_MAP = {
         "  Rapido: cas sismo rapido X 3 C S2 8 concreto rb,masa tors\n"
         "  Irregularidades: cas sismo irregularidades | cas sismo irregularidades calcular rb tors\n"
         "  Separacion legacy: cas sismo separacion <h> [da db]\n"
-        "  Nuevo flujo: cas sismo 2026 <sentido> Z U perfil R Ia Ip Material"
+        "  Nuevo flujo: cas sismo 2026 <sentido> Z U perfil R Ia Ip Material\n"
+        "  Exportar ETABS 2026: cas sismo 2026 <sentido> Z U perfil R Ia Ip Sa\n"
+        "  Persistencia 2026: list | show [id] | delete <id> | edit <id> ... | report [nom]\n"
+        "  Espectro directo: cas espectro Z U S Tp Tl Ia Ip R"
     ),
     "irregular": (
         "cas irregular <tipo> X|Y <datos...>  - Verificacion E.030 (Tablas 8 y 9)\n"
         "  Sentido X o Y obligatorio. Tipos: rigidez, resistencia, discontinuidad, etc.\n"
         "  Persistencia: list | show [id] | delete <id> | edit <id> <tipo> X|Y datos...\n"
-        "  Ej: cas irregular rigidez X 500 800 750 | cas irregular list"
+        "  Ej: cas irregular rigidez X 500 800 750 | cas irregular list\n"
+        "  E.030 2026: cas irregular 2026 <tipo> ... (Tablas 11 y 12, store separado)\n"
+        "  Ej: cas irregular 2026 rigidez X etabs | cas irregular 2026 report"
     ),
     "columna": (
         "DISEÑO DE COLUMNAS DE CONCRETO ARMADO (E.060)\n"
@@ -230,8 +239,8 @@ HELP_LINES = [
     "                                  Agregar/actualizar muro para diseno",
     "  muro data                        Listar muros almacenados",
     "  muro remove <nombre>             Eliminar muro de datos",
-    "  muro diseno [nombre] [DEFORMACION|ESFUERZO]",
-    "                                  Diseno completo E.060 (flexion, corte, borde)",
+    "  muro diseno [nombre] [DEFORMACION|ESFUERZO] [R]",
+    "                                  Diseno completo E.060 (flexion, corte, borde; R default 6)",
     "  muro results [nombre]            Ver resultados de diseno de muros",
     "",
     "Diseno Multipiso (RNE E.060):",
@@ -242,27 +251,33 @@ HELP_LINES = [
     "  muro pisos [nombre]              Listar pisos definidos",
     "  muro del-piso <nombre> <N>       Eliminar un piso",
     "  muro asignar <muro> <Nom> [Ult] Asignar diagramas a un muro",
-    "  muro multi <nombre> [DEFORMACION|ESFUERZO] [delta_u] [joint_Av]",
-    "                                  Diseno multipiso completo E.060",
+    "  muro multi <nombre> [DEFORMACION|ESFUERZO] [delta_u] [joint_Av] [R]",
+    "                                  Diseno multipiso completo E.060 (R default 6)",
     "  muro multi-results [nombre]      Ver resultados multipiso",
     "  muro multi-report <nombre> [metodo] [du] [Av] [R]\n"
     "                                  Generar reporte multipiso (md/docx + figura P-M2-M3).\n"
     "  muro multi-delete <nombre>       Borrar resultados multipiso y datos asociados",
     "  muro etabs-import <nombre> <lm> <t> <fc> <fy> <fyt> <pier>",
     "                                  PASO 2: Importar ETABS, ver TABLA 1",
-    "  muro etabs-diseno <nombre> <lm> <t> <fc> <fy> <fyt> <pier> [metodo] [du] [Av]",
-    "                                  Atajo: importar + disenar en un paso",
+    "  muro etabs-diseno <nombre> <lm> <t> <fc> <fy> <fyt> <pier> [metodo] [du] [Av] [R] [SOTANO n]",
+    "                                  Atajo: importar + disenar en un paso (R default 6)",
     "",
     "Irregularidades E.030:",
     "  irregular <tipo> X|Y datos   Verificacion por sentido (rigidez, resistencia, etc.)",
-    "  irregular list [tipo] [X|Y]  Listar analisis guardados",
+    "  irregular 2026 <tipo> ...    Igual que irregular, criterios E.030 2026 (Tablas 11-12)",
+    "  irregular list [tipo] [X|Y]  Listar analisis guardados (legacy)",
+    "  irregular 2026 list          Listar analisis 2026",
     "  irregular show [id]          Mostrar analisis",
+    "  irregular 2026 show [id]     Mostrar analisis 2026",
     "  irregular delete <id>        Borrar analisis",
+    "  irregular 2026 delete <id>   Borrar analisis 2026",
     "  irregular edit <id> tipo X|Y  Editar analisis",
+    "  irregular 2026 report [nom]  Reporte consolidado 2026",
     "",
     "Sismo E.030:",
     "  sismo <sentido> Z U perfil R Ia Ip Material     Ej: X 3 C S2 8 1 1 concreto",
     "  sismo 2026 <sentido> Z U perfil R Ia Ip Material",
+    "  sismo 2026 <sentido> Z U perfil R Ia Ip Sa      Exportar tabla Unicode ETABS (Periodo, Sa/g)",
     "  sismo rapido <sentido> Z U perfil R Material <cod_altura> <cod_planta>",
     "  sismo 2026 rapido <sentido> Z U perfil R Material <cod_altura> <cod_planta>",
     "  sismo irregularidades                           Ver codigos Ia/Ip (tablas 8 y 9)",
@@ -271,6 +286,12 @@ HELP_LINES = [
     "  sismo 2026 results                              Ver resultados 2026",
     "  sismo separacion <h> [da db]                    Separación edificios legacy",
     "  sismo 2026 separacion <h> <Z> <perfil|S> [da db] Separación edificios 2026",
+    "  sismo 2026 list [X|Y]                          Listar analisis 2026 guardados",
+    "  sismo 2026 show [id]                           Mostrar analisis 2026",
+    "  sismo 2026 delete <id>                         Borrar analisis 2026",
+    "  sismo 2026 edit <id> <sentido> Z U ...         Recalcular y actualizar analisis",
+    "  sismo 2026 report [nombre]                     Reporte consolidado 2026",
+    "  espectro Z U S Tp Tl Ia Ip R                   Espectro ETABS 2026 (Sa = Z*U*S*C/R)",
     "",
     "Diseno de Columnas (E.060):",
     "  columna props <UN> <k> <lu> <Ix> <Iy> <Ag> <Bd> [fc] [fy]",

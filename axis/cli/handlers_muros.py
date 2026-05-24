@@ -379,9 +379,10 @@ def _to_f(val, default=None):
 
 
 def handle_muro_diseno(args: list[str]) -> str:
-    """cas muro diseno [nombre] [DEFORMACION|ESFUERZO]
+    """cas muro diseno [nombre] [DEFORMACION|ESFUERZO] [R]
 
     Ejecuta el diseño completo RNE E.060 de un muro almacenado (o todos).
+    R = factor de ductilidad E.030 para min(Mn/Mua, R); default 6.
     """
     pp = _project()
     rows = read_csv(pp, "muros")
@@ -391,12 +392,18 @@ def handle_muro_diseno(args: list[str]) -> str:
 
     nombre_filtro = None
     boundary_method = None
+    R_val = None
     for a in args:
         au = a.upper()
         if au in ("DEFORMACION", "ESFUERZO"):
             boundary_method = au
         elif nombre_filtro is None:
             nombre_filtro = a
+        elif R_val is None:
+            try:
+                R_val = float(a)
+            except ValueError:
+                pass
 
     if nombre_filtro:
         rows = [r for r in rows if r.get("nombre") == nombre_filtro]
@@ -434,6 +441,8 @@ def handle_muro_diseno(args: list[str]) -> str:
             data["Mn_manual"] = Mn_kgcm
         if boundary_method:
             data["boundary_method"] = boundary_method
+        R = R_val if R_val is not None else 6.0
+        data["R"] = R
 
         result = run("diseno", "muro", data)
         all_results.append(result)
@@ -490,7 +499,11 @@ def _format_design_output(r: dict, Pu_tn: float, Vu_tn: float, Mu_tnm: float) ->
         f"     Mn >= 1.2*Mcr   ->   {'CUMPLE' if r.get('cracking_ok') else 'NO CUMPLE'}",
         "",
         "  6. CORTE (con amplificacion por capacidad)",
-        f"     Vu_cap = {Vu_cap_tn:.2f} Tn   (amplificado Mn/Mua)",
+        f"     Vu_cap = {Vu_cap_tn:.2f} Tn   (amplificado min(Mn/Mua,R))",
+    ]
+    if r.get("R") is not None:
+        lines.append(f"     R = {float(r['R']):g}")
+    lines += [
         f"     Vc = {Vc_tn:.2f} Tn   |   Vs = {Vs_tn:.2f} Tn   |   Vn = {Vn_tn:.2f} Tn",
         f"     phi*Vn = {phi_Vn_tn:.2f} Tn   ->   {'CUMPLE' if r['corte_ok'] else 'NO CUMPLE'}",
         f"     Vn <= 2.6*sqrt(f'c)*Acw: {'Si' if r['vn_limit_ok'] else 'No'}",
@@ -720,8 +733,8 @@ def handle_muro_report(args: list[str]) -> str:
             data["delta_u"] = delta_u
         if j_Av is not None:
             data["joint_Av"] = j_Av
-        if R_val is not None:
-            data["R"] = R_val
+        R = R_val if R_val is not None else 6.0
+        data["R"] = R
 
         result = run("diseno", "muro_multi", data)
         sismo_dir = "SY" if ("Y" in nombre.upper() and "X" not in nombre.upper()) else "SX"
@@ -1012,9 +1025,10 @@ def handle_muro_asignar(args: list[str]) -> str:
 
 
 def handle_muro_multi(args: list[str]) -> str:
-    """cas muro multi <nombre> [DEFORMACION|ESFUERZO] [delta_u] [joint_Av]
+    """cas muro multi <nombre> [DEFORMACION|ESFUERZO] [delta_u] [joint_Av] [R]
 
     Ejecuta diseno multipiso completo RNE E.060.
+    R = factor de ductilidad E.030 para min(Mn/Mua, R); default 6.
     """
     pp = _project()
     if not args:
@@ -1084,8 +1098,8 @@ def handle_muro_multi(args: list[str]) -> str:
         data["delta_u"] = delta_u
     if j_Av is not None:
         data["joint_Av"] = j_Av
-    if R_val is not None:
-        data["R"] = R_val
+    R = R_val if R_val is not None else 6.0
+    data["R"] = R
 
     result = run("diseno", "muro_multi", data)
 
@@ -1207,7 +1221,6 @@ def _format_multi_output(
 
     nombre = r["nombre"]
     ok_global = r.get("diseno_ok", False)
-    estado = "CUMPLE" if ok_global else "NO CUMPLE"
     lm = r.get("lm", float(wall_def.get("lm", 0)) if wall_def else 0)
     t = r.get("t", float(wall_def.get("t", 0)) if wall_def else 0)
     fc = float(wall_def.get("fc", 210)) if wall_def else 210
@@ -1217,6 +1230,7 @@ def _format_multi_output(
     Acw = lm * t
     sqrt_fc = math.sqrt(fc) if fc > 0 else 0
 
+    estado = "CUMPLE" if ok_global else "NO CUMPLE"
     lines = [
         f"{'=' * 70}",
         f"  DISENO MULTIPISO: {nombre}   ->   {estado}",
@@ -1226,6 +1240,9 @@ def _format_multi_output(
         f"  Materiales: f'c={fc:.0f}  fy={fy:.0f}  fyt={fyt:.0f} kg/cm2",
         f"  H_total={H_total:.0f} cm  ({H_total/100:.2f} m)",
     ]
+    R_report = r.get("R")
+    if R_report is not None:
+        lines.append(f"  Factor R (ductilidad E.030): {float(R_report):g}")
     if n_sotanos is not None and n_sotanos > 0:
         lines.append(
             f"  Niveles de sotano considerados: 1 a {n_sotanos} "
@@ -1296,6 +1313,8 @@ def _format_multi_output(
         all_pm_ok = all(pm_ok_by_piso.get(int(p.get("piso", 0) or 0), True) for p in pisos)
         if all_pm_ok:
             ok_global = True
+            estado = "CUMPLE"
+            lines[1] = f"  DISENO MULTIPISO: {nombre}   ->   CUMPLE"
 
     # Si NO CUMPLE, mostrar resumen por piso (geom., flexión, corte, agrietamiento, junta)
     # Precalcular umbral y hm/lm para usar el mismo ρv efectivo que TABLA 8C (el resumen corre antes de 8C)
@@ -2300,8 +2319,8 @@ def handle_muro_multi_report(args: list[str]) -> str:
         data["delta_u"] = delta_u
     if j_Av is not None:
         data["joint_Av"] = j_Av
-    if R_val is not None:
-        data["R"] = R_val
+    R = R_val if R_val is not None else 6.0
+    data["R"] = R
 
     # Ejecutar diseño multipiso y formatear salida (todas las tablas)
     result = run("diseno", "muro_multi", data)
@@ -2874,7 +2893,7 @@ def handle_muro_etabs_import(args: list[str]) -> str:
                               columns=["N", "piso", "hm", "Pu", "Vu", "Mu"]))
     lines += [
         "",
-        "Siguiente paso: cas muro multi " + nombre + " [DEFORMACION|ESFUERZO] [delta_u] [joint_Av]",
+        "Siguiente paso: cas muro multi " + nombre + " [DEFORMACION|ESFUERZO] [delta_u] [joint_Av] [R]",
     ]
     return "\n".join(lines)
 
@@ -3020,8 +3039,7 @@ def handle_muro_etabs_diseno(args: list[str]) -> str:
         data["delta_u"] = delta_u
     if j_Av is not None:
         data["joint_Av"] = j_Av
-    if R_val is not None:
-        data["R"] = R_val
+    data["R"] = R
     if n_sotanos is not None:
         data["n_sotanos"] = n_sotanos
 

@@ -57,7 +57,9 @@ from axis.cli.handlers_inercia import (
 )
 from axis.cli.sismo_handlers import handle_sismo
 from axis.cli.sismo_handlers_2026 import handle_sismo_2026
+from axis.cli.handlers_espectro import handle_espectro
 from axis.cli.handlers_irregular import handle_irregular
+from axis.cli.handlers_irregular_2026 import handle_irregular_2026
 from axis.cli.handlers_diagramas import (
     handle_diagrama_add,
     handle_diagrama_list,
@@ -161,7 +163,9 @@ HANDLERS = {
     ("results", "cortante"): handle_results_cortante,
     "sismo": handle_sismo,
     ("sismo", "2026"): handle_sismo_2026,
+    "espectro": handle_espectro,
     "irregular": handle_irregular,
+    ("irregular", "2026"): handle_irregular_2026,
     ("muro", "nucleo"): handle_muro_nucleo,
     ("muro", "list"): handle_muro_list,
     ("muro", "delete"): handle_muro_delete,

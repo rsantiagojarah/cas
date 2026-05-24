@@ -1,28 +1,22 @@
-"""Handlers CLI para verificacion de irregularidades E.030 (Tablas 8 y 9)."""
+"""Handlers CLI para verificacion de irregularidades E.030 (Tablas 8 y 9 / 2026: 11 y 12)."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 import re
+from types import ModuleType
 
 from axis.core.exceptions import InvalidInput, NoActiveProject
 from axis.core.project import get_active_project_path
 from axis.cli.handlers import get_base_path
 from axis.cli.colors import heading, arrow, ok, fail, dim
 from axis.cli.tables import format_table
-from axis.sismico.irregularidades_verificacion import (
-    verificar_torsional_todos,
-    calcular_relativos_desde_absolutos,
-    verificar_rigidez_unificado,
-    verificar_resistencia_unificado,
-    verificar_masa_todos,
-    verificar_geometrica_vertical_todos,
-    verificar_esquinas_entrantes_todos,
-    verificar_diafragma_todos,
-    verificar_sistemas_no_paralelos_todos,
-    verificar_discontinuidad_unificado_desalineamiento,
-)
+from axis.sismico import irregularidades_verificacion as _verif_legacy
+from axis.sismico import irregularidades_verificacion_2026 as _verif_2026
 from axis.sismico.irregularidades_persistencia import (
+    DEFAULT_STORE,
+    STORE_2026,
     guardar_analisis,
     listar_analisis,
     obtener_analisis,
@@ -48,10 +42,62 @@ def _salida_verificacion(existe: bool) -> str:
     return fail("Existe") if existe else ok("No existe")
 
 
+@dataclass(frozen=True)
+class IrregularConfig:
+    norma_label: str
+    cmd_prefix: str
+    store_file: str
+    verif: ModuleType
+    tabla_altura: str
+    tabla_planta: str
+
+
+CFG_LEGACY = IrregularConfig(
+    norma_label="E.030",
+    cmd_prefix="cas irregular",
+    store_file=DEFAULT_STORE,
+    verif=_verif_legacy,
+    tabla_altura="Tabla 8",
+    tabla_planta="Tabla 9",
+)
+
+CFG_2026 = IrregularConfig(
+    norma_label="E.030 2026",
+    cmd_prefix="cas irregular 2026",
+    store_file=STORE_2026,
+    verif=_verif_2026,
+    tabla_altura="Tabla 11",
+    tabla_planta="Tabla 12",
+)
+
+_active_cfg: IrregularConfig = CFG_LEGACY
+
+
+def _V() -> ModuleType:
+    return _active_cfg.verif
+
+
+def _store() -> str:
+    return _active_cfg.store_file
+
+
+def _cmd() -> str:
+    return _active_cfg.cmd_prefix
+
+
+def _diafragma_criterio_txt() -> str:
+    if _active_cfg is CFG_2026:
+        return (
+            "Criterio 1: abertura > 50% area bruta. "
+            "Criterio 2: seccion neta < 50% area bruta equivalente.\n"
+        )
+    return "Criterio 1: abertura > 50% area bruta. Criterio 2: seccion neta < 25% seccion total.\n"
+
+
 def _extraer_sentido(args: list[str]) -> tuple[str, list[str]]:
     """Si args[0] es X o Y, retorna (sentido, resto). Si no, lanza."""
     if not args:
-        raise InvalidInput("Indique sentido X o Y. Ej: cas irregular rigidez X 500 800 750")
+        raise InvalidInput(f"Indique sentido X o Y. Ej: {_cmd()} rigidez X 500 800 750")
     s = args[0].upper()
     if s not in ("X", "Y"):
         raise InvalidInput("Primer argumento debe ser X o Y (sentido de analisis).")
@@ -66,12 +112,26 @@ def _get_project_path() -> Path:
 
 
 def handle_irregular(args: list[str]) -> str:
+    """cas irregular <tipo> ... (E.030 legacy)."""
+    return dispatch_irregular(args, CFG_LEGACY)
+
+
+def dispatch_irregular(args: list[str], cfg: IrregularConfig) -> str:
     """
-    cas irregular <tipo> <args...>
-    Tipos: torsional, piso-blando, extrema-rigidez, piso-debil, extrema-resistencia,
-           masa, geometrica-vertical, esquinas-entrantes, diafragma,
-           sistemas-no-paralelos, discontinuidad, discontinuidad-extrema
+    cas irregular [2026] <tipo> <args...>
+    Tipos: torsional, rigidez, resistencia, masa, geometrica-vertical,
+           esquinas-entrantes, diafragma, sistemas-no-paralelos, discontinuidad
     """
+    global _active_cfg
+    prev = _active_cfg
+    _active_cfg = cfg
+    try:
+        return _dispatch_irregular_impl(args)
+    finally:
+        _active_cfg = prev
+
+
+def _dispatch_irregular_impl(args: list[str]) -> str:
     if not args:
         return _irregular_help()
     sub = args[0].lower()
@@ -105,27 +165,37 @@ def handle_irregular(args: list[str]) -> str:
         return _cmd_sistemas_no_paralelos(args[1:])
     if sub in ("discontinuidad", "discontinuidad-extrema"):
         return _cmd_discontinuidad(args[1:])
-    raise InvalidInput(f"Tipo desconocido: {sub}. Use: cas irregular help")
+    raise InvalidInput(f"Tipo desconocido: {sub}. Use: {_cmd()} help")
 
 
 def _irregular_help() -> str:
+    ta, tp = _active_cfg.tabla_altura, _active_cfg.tabla_planta
+    p = _cmd()
     return (
-        heading("Verificacion de irregularidades E.030 (Tablas 8 y 9)\n")
+        heading(f"Verificacion de irregularidades {_active_cfg.norma_label} ({ta} y {tp})\n")
         + dim("Datos manuales o importar desde ETABS. Requiere proyecto activo. Analisis por sentido X e Y.\n\n")
-        + "Todos los comandos: <tipo> <X|Y> <datos...>  (sentido obligatorio)\n\n"
-        + "Persistencia: list | show [id] | delete <id> | edit <id> <tipo> X|Y datos... | report [nombre]\n\n"
-        + "Planta (Tabla 9):\n"
-        + "  torsional X|Y no-aplica | u_a1 u_b1 u_a2 u_b2 ...\n"
-        + "  esquinas-entrantes no-aplica | ea1 eb1 ta1 tb1 ea2 eb2 ta2 tb2 ...  (no requiere sentido)\n"
-        + "  diafragma no-aplica | ab1 br1 sn1 st1 ab2 br2 sn2 st2 ...  (no requiere sentido)\n"
-        + "  sistemas-no-paralelos no-aplica | angulo  (no requiere sentido; verificar elem. > 10% cortante)\n\n"
-        + "Altura (Tabla 8):\n"
-        + "  rigidez X|Y no-aplica | etabs | k1 k2 k3 ... kn  (etabs=Story Stiffness)\n"
-        + "  resistencia X|Y no-aplica | etabs | V1 V2 V3 ... Vn  (etabs=Story Stiffness/Forces)\n"
-        + "  masa X|Y [sotano|no-sotano] no-aplica | etabs | P1 P2 ...  (sotano=no aplica en Tabla 8)\n"
-        + "  geometrica-vertical X|Y no-aplica  O  D1 D2 D3 ... Dn\n"
-        + "  discontinuidad no-aplica | L1 d1 L2 d2 ...  (no requiere sentido; elem. > 10% cortante)\n\n"
-        + "Ej: cas irregular rigidez X 500 800 750 | cas irregular list"
+        + f"Todos los comandos: {p} <tipo> <X|Y> <datos...>  (sentido obligatorio salvo tipos de planta indicados)\n\n"
+        + f"Persistencia: {p} list | show [id] | delete <id> | edit <id> <tipo> X|Y datos... | report [nombre]\n\n"
+        + f"Planta ({tp}):\n"
+        + f"  {p} torsional X|Y no-aplica | u_a1 u_b1 u_a2 u_b2 ...\n"
+        + f"  {p} esquinas-entrantes no-aplica | ea1 eb1 ta1 tb1 ...\n"
+        + f"  {p} diafragma no-aplica | ab1 br1 sn1 st1 ab2 br2 sn2 st2 ...\n"
+        + f"  {p} sistemas-no-paralelos no-aplica | angulo\n\n"
+        + f"Altura ({ta}):\n"
+        + f"  {p} rigidez X|Y no-aplica | etabs | k1 k2 k3 ... kn\n"
+        + f"  {p} resistencia X|Y no-aplica | etabs | V1 V2 V3 ... Vn\n"
+        + f"  {p} masa X|Y [sotano|no-sotano] no-aplica | etabs | P1 P2 ...\n"
+        + f"  {p} geometrica-vertical X|Y no-aplica | D1 D2 D3 ... Dn\n"
+        + f"  {p} discontinuidad no-aplica | L1 d1 L2 d2 ...\n\n"
+        + f"Ej: {p} rigidez X 500 800 750 | {p} list"
+        + (
+            dim(
+                f"\n\nTras verificar, use: cas sismo 2026 irregularidades calcular <cod_alt> <cod_planta>\n"
+                f"  o: cas sismo 2026 rapido <sentido> Z U perfil R Material <cod_alt> <cod_planta>\n"
+            )
+            if _active_cfg is CFG_2026
+            else ""
+        )
     )
 
 
@@ -135,7 +205,7 @@ def _cmd_list(args: list[str]) -> str:
     sentido = args[1].upper() if len(args) > 1 and args[1].upper() in ("X", "Y") else None
     if args and args[0].upper() in ("X", "Y") and not tipo:
         sentido = args[0].upper()
-    items = listar_analisis(path, tipo, sentido)
+    items = listar_analisis(path, tipo, sentido, store_name=_store())
     if not items:
         return "No hay analisis guardados."
     filas = [{"ID": a["id"], "Tipo": a["tipo"], "Sentido": a["sentido"],
@@ -147,11 +217,11 @@ def _cmd_show(args: list[str]) -> str:
     path = _get_project_path()
     aid = args[0] if args else None
     if not aid:
-        items = listar_analisis(path)
+        items = listar_analisis(path, store_name=_store())
         if not items:
             return "No hay analisis guardados."
         aid = items[-1]["id"]
-    a = obtener_analisis(path, aid)
+    a = obtener_analisis(path, aid, store_name=_store())
     if not a:
         return f"Analisis '{aid}' no encontrado."
     lineas = [
@@ -165,16 +235,16 @@ def _cmd_show(args: list[str]) -> str:
 
 def _cmd_delete(args: list[str]) -> str:
     if not args:
-        raise InvalidInput("Uso: cas irregular delete <id>")
+        raise InvalidInput(f"Uso: {_cmd()} delete <id>")
     path = _get_project_path()
-    if eliminar_analisis(path, args[0]):
+    if eliminar_analisis(path, args[0], store_name=_store()):
         return f"Analisis '{args[0]}' eliminado."
     return f"Analisis '{args[0]}' no encontrado."
 
 
 def _cmd_edit(args: list[str]) -> str:
     if len(args) < 3:
-        raise InvalidInput("Uso: cas irregular edit <id> <tipo> [X|Y] <datos...>")
+        raise InvalidInput(f"Uso: {_cmd()} edit <id> <tipo> [X|Y] <datos...>")
     aid, tipo, resto = args[0], args[1].lower(), args[2:]
     mapeo = {
         "rigidez": _cmd_rigidez, "piso-blando": _cmd_rigidez, "extrema-rigidez": _cmd_rigidez,
@@ -231,12 +301,12 @@ def _orden_analisis(a: dict) -> tuple:
 def _cmd_report(args: list[str]) -> str:
     """
     Genera reporte consolidado de irregularidades en formato similar a sismo.
-    Uso: cas irregular report [nombre]
+    Uso: {_cmd()} report [nombre]
     """
     from axis.reportes.docx_sismo import generar_docx_sismo
 
     path = _get_project_path()
-    items = listar_analisis(path)
+    items = listar_analisis(path, store_name=_store())
     if not items:
         return "No hay analisis guardados para generar reporte."
 
@@ -267,8 +337,9 @@ def _cmd_report(args: list[str]) -> str:
     analisis = sorted(ultimos.values(), key=_orden_analisis)
 
     sep = "\n\n" + dim("-" * 50) + "\n\n"
-    salidas = [heading("REPORTE DE IRREGULARIDADES E.030\n") + dim("=" * 50) + "\n"]
-    md_partes = ["# REPORTE DE IRREGULARIDADES E.030\n"]
+    titulo_rep = f"REPORTE DE IRREGULARIDADES {_active_cfg.norma_label}"
+    salidas = [heading(f"{titulo_rep}\n") + dim("=" * 50) + "\n"]
+    md_partes = [f"# {titulo_rep}\n"]
 
     resumen = [
         {
@@ -311,10 +382,19 @@ def _cmd_report(args: list[str]) -> str:
     )
     salidas.append(sep + bloque_fact)
     md_partes.append(_paso_a_markdown(bloque_fact))
+    if _active_cfg is CFG_2026:
+        bloque_sig = dim(
+            f"Siguiente paso: cas sismo 2026 irregularidades calcular <cod_alt> <cod_planta>\n"
+            f"  o cas sismo 2026 rapido <sentido> Z U perfil R Material <cod_alt> <cod_planta>\n"
+            f"  (Ia consolidado={ia_rep:g}, Ip consolidado={ip_rep:g})"
+        )
+        salidas.append(sep + bloque_sig)
+        md_partes.append(_paso_a_markdown(bloque_sig))
 
     nombre = args[0].strip() if args else "general"
     nombre_limpio = "".join(c for c in nombre if c.isalnum() or c in ("-", "_")).strip() or "general"
-    base = f"irregularidades_reporte_{nombre_limpio}"
+    suf = "_2026" if _active_cfg is CFG_2026 else ""
+    base = f"irregularidades_reporte{suf}_{nombre_limpio}"
     results_dir = path / "results"
     results_dir.mkdir(parents=True, exist_ok=True)
     md_path = results_dir / f"{base}.md"
@@ -339,10 +419,14 @@ def _no_aplica_generico(
     filas = [{"Irregular": "No aplica"}]
     datos = [["no-aplica"]]
     if edit_id:
-        actualizar_analisis(path, edit_id, tipo, sentido, datos, factor, factor_tipo, filas)
+        actualizar_analisis(
+            path, edit_id, tipo, sentido, datos, factor, factor_tipo, filas, store_name=_store()
+        )
         msg_guardado = ""
     else:
-        aid = guardar_analisis(path, tipo, sentido, datos, factor, factor_tipo, filas)
+        aid = guardar_analisis(
+            path, tipo, sentido, datos, factor, factor_tipo, filas, store_name=_store()
+        )
         msg_guardado = "\n" + ok(f"Guardado (id: {aid})")
     titulo = f"{tipo.replace('-', ' ').title()}" + (f" - Sentido {sentido}\n" if sentido != "-" else "\n")
     return (
@@ -363,13 +447,13 @@ def _cmd_torsional(args: list[str], edit_id: str | None = None) -> str:
                   "Ratio": "-", "Irregular": "No aplica", "Extrema": "-"}]
         datos = [["no-aplica"]]
         if edit_id:
-            actualizar_analisis(path, edit_id, "torsional", sentido, datos, 1.0, "Ip", filas)
+            actualizar_analisis(path, edit_id, "torsional", sentido, datos, 1.0, "Ip", filas, store_name=_store())
             msg_guardado = ""
         else:
-            aid = guardar_analisis(path, "torsional", sentido, datos, 1.0, "Ip", filas)
+            aid = guardar_analisis(path, "torsional", sentido, datos, 1.0, "Ip", filas, store_name=_store())
             msg_guardado = "\n" + ok(f"Guardado (id: {aid})")
         return (
-            heading(f"Irregularidad torsional (Tabla 9) - Sentido {sentido}\n")
+            heading(f"Irregularidad torsional ({_active_cfg.tabla_planta}) - Sentido {sentido}\n")
             + dim("No aplica: desplazamiento relativo de entrepiso <= 50% del permisible (Tabla 11).\n")
             + format_table(filas)
             + "\n\n" + arrow("Factor Ip a usar: ") + "1.0"
@@ -378,8 +462,8 @@ def _cmd_torsional(args: list[str], edit_id: str | None = None) -> str:
     # u_a u_b por piso (desplazamientos absolutos por nivel)
     if len(resto) < 2 or len(resto) % 2 != 0:
         raise InvalidInput(
-            "Uso: cas irregular torsional X|Y no-aplica\n"
-            "  O: cas irregular torsional X|Y u_a1 u_b1 u_a2 u_b2 ..."
+            f"Uso: {_cmd()} torsional X|Y no-aplica\n"
+            f"  O: {_cmd()} torsional X|Y u_a1 u_b1 u_a2 u_b2 ..."
         )
     abs_a, abs_b = [], []
     for i in range(0, len(resto), 2):
@@ -387,8 +471,8 @@ def _cmd_torsional(args: list[str], edit_id: str | None = None) -> str:
         ub = _parse_float(resto[i + 1], f"u_b{i//2+1}")
         abs_a.append(ua)
         abs_b.append(ub)
-    pares = calcular_relativos_desde_absolutos(abs_a, abs_b)
-    resultados = verificar_torsional_todos(pares)
+    pares = _V().calcular_relativos_desde_absolutos(abs_a, abs_b)
+    resultados = _V().verificar_torsional_todos(pares)
     filas = []
     for i, r in enumerate(resultados):
         irregular = "Si" if r["existe"] else "No"
@@ -410,13 +494,13 @@ def _cmd_torsional(args: list[str], edit_id: str | None = None) -> str:
     path = _get_project_path()
     datos = [[da, db] for (da, db) in pares]
     if edit_id:
-        actualizar_analisis(path, edit_id, "torsional", sentido, datos, ip, "Ip", filas)
+        actualizar_analisis(path, edit_id, "torsional", sentido, datos, ip, "Ip", filas, store_name=_store())
         msg_guardado = ""
     else:
-        aid = guardar_analisis(path, "torsional", sentido, datos, ip, "Ip", filas)
+        aid = guardar_analisis(path, "torsional", sentido, datos, ip, "Ip", filas, store_name=_store())
         msg_guardado = "\n" + ok(f"Guardado (id: {aid})")
     lineas = [
-        heading(f"Irregularidad torsional (Tabla 9) - Sentido {sentido}\n"),
+        heading(f"Irregularidad torsional ({_active_cfg.tabla_planta}) - Sentido {sentido}\n"),
         dim("Criterio solo aplica si desplazamiento relativo de entrepiso > 50% del permisible (Tabla 11).\n"),
         dim("Calculados desde absolutos. da, db = relativos por piso. Ratio = Delta_max/Delta_prom.\n"),
         format_table(filas),
@@ -440,9 +524,9 @@ def _cmd_rigidez(args: list[str], edit_id: str | None = None) -> str:
         ks = datos_etabs["ks"]
         resto = [str(k) for k in ks]
     if len(resto) < 2:
-        raise InvalidInput("Uso: cas irregular rigidez X|Y no-aplica | etabs | k1 k2 k3 ... kn")
+        raise InvalidInput(f"Uso: {_cmd()} rigidez X|Y no-aplica | etabs | k1 k2 k3 ... kn")
     ks = [_parse_float(a, f"k{i+1}") for i, a in enumerate(resto)]
-    resultados = verificar_rigidez_unificado(ks)
+    resultados = _V().verificar_rigidez_unificado(ks)
     def _fmt1(x):
         if x is None:
             return x
@@ -468,13 +552,13 @@ def _cmd_rigidez(args: list[str], edit_id: str | None = None) -> str:
     ia_edificio = min(r["Ia"] for r in resultados)
     path = _get_project_path()
     if edit_id:
-        actualizar_analisis(path, edit_id, "rigidez", sentido, ks, ia_edificio, "Ia", filas)
+        actualizar_analisis(path, edit_id, "rigidez", sentido, ks, ia_edificio, "Ia", filas, store_name=_store())
         msg_guardado = ""
     else:
-        aid = guardar_analisis(path, "rigidez", sentido, ks, ia_edificio, "Ia", filas)
+        aid = guardar_analisis(path, "rigidez", sentido, ks, ia_edificio, "Ia", filas, store_name=_store())
         msg_guardado = "\n" + ok(f"Guardado (id: {aid})")
     lineas = [
-        heading(f"Rigidez - Piso blando / Extrema (Tabla 8) - Sentido {sentido}\n"),
+        heading(f"Rigidez - Piso blando / Extrema ({_active_cfg.tabla_altura}) - Sentido {sentido}\n"),
         dim("Rigideces de abajo a arriba: ") + ", ".join(f"{k:.1f}" for k in ks),
         "",
         format_table(filas, decimal_places=1),
@@ -495,9 +579,9 @@ def _cmd_resistencia(args: list[str], edit_id: str | None = None) -> str:
         vs_raw = datos_etabs["vs"]
         resto = [str(v) for v in vs_raw]
     if len(resto) < 2:
-        raise InvalidInput("Uso: cas irregular resistencia X|Y no-aplica | etabs | V1 V2 V3 ... Vn")
+        raise InvalidInput(f"Uso: {_cmd()} resistencia X|Y no-aplica | etabs | V1 V2 V3 ... Vn")
     vs = [_parse_float(a, f"V{i+1}") for i, a in enumerate(resto)]
-    resultados = verificar_resistencia_unificado(vs)
+    resultados = _V().verificar_resistencia_unificado(vs)
 
     def _fmt1(x):
         if x is None:
@@ -522,13 +606,13 @@ def _cmd_resistencia(args: list[str], edit_id: str | None = None) -> str:
     ia_edificio = min(r["Ia"] for r in resultados)
     path = _get_project_path()
     if edit_id:
-        actualizar_analisis(path, edit_id, "resistencia", sentido, vs, ia_edificio, "Ia", filas)
+        actualizar_analisis(path, edit_id, "resistencia", sentido, vs, ia_edificio, "Ia", filas, store_name=_store())
         msg_guardado = ""
     else:
-        aid = guardar_analisis(path, "resistencia", sentido, vs, ia_edificio, "Ia", filas)
+        aid = guardar_analisis(path, "resistencia", sentido, vs, ia_edificio, "Ia", filas, store_name=_store())
         msg_guardado = "\n" + ok(f"Guardado (id: {aid})")
     lineas = [
-        heading(f"Resistencia - Piso debil / Extrema (Tabla 8) - Sentido {sentido}\n"),
+        heading(f"Resistencia - Piso debil / Extrema ({_active_cfg.tabla_altura}) - Sentido {sentido}\n"),
         dim("Resistencias de abajo a arriba: ") + ", ".join(f"{v:.1f}" for v in vs),
         "",
         format_table(filas, decimal_places=1),
@@ -556,10 +640,10 @@ def _cmd_masa(args: list[str], edit_id: str | None = None) -> str:
         resto = [str(p) for p in datos_etabs["ps"]]
     if len(resto) < 2:
         raise InvalidInput(
-            "Uso: cas irregular masa X|Y [sotano|no-sotano] no-aplica | etabs | P1 P2 P3 ... Pn"
+            f"Uso: {_cmd()} masa X|Y [sotano|no-sotano] no-aplica | etabs | P1 P2 P3 ... Pn"
         )
     ps = [_parse_float(a, f"P{i+1}") for i, a in enumerate(resto)]
-    resultados = verificar_masa_todos(ps, hay_sotano=hay_sotano)
+    resultados = _V().verificar_masa_todos(ps, hay_sotano=hay_sotano)
     filas = [{
         "Piso": r["piso"],
         "Peso": r["peso"],
@@ -571,14 +655,18 @@ def _cmd_masa(args: list[str], edit_id: str | None = None) -> str:
     path = _get_project_path()
     metadata = {"hay_sotano": hay_sotano}
     if edit_id:
-        actualizar_analisis(path, edit_id, "masa", sentido, ps, ia, "Ia", filas, metadata=metadata)
+        actualizar_analisis(path, edit_id, "masa", sentido, ps, ia, "Ia", filas, metadata=metadata, store_name=_store())
         msg_guardado = ""
     else:
-        aid = guardar_analisis(path, "masa", sentido, ps, ia, "Ia", filas, metadata=metadata)
+        aid = guardar_analisis(path, "masa", sentido, ps, ia, "Ia", filas, metadata=metadata, store_name=_store())
         msg_guardado = "\n" + ok(f"Guardado (id: {aid})")
-    nota_sotano = dim("Con sótano: criterio no aplica en primer piso (Tabla 8).\n") if hay_sotano else ""
+    nota_sotano = (
+        dim(f"Con sótano: criterio no aplica en primer piso ({_active_cfg.tabla_altura}).\n")
+        if hay_sotano
+        else ""
+    )
     lineas = [
-        heading(f"Irregularidad de masa o peso (Tabla 8) - Sentido {sentido}\n"),
+        heading(f"Irregularidad de masa o peso ({_active_cfg.tabla_altura}) - Sentido {sentido}\n"),
         nota_sotano,
         format_table(filas),
         "",
@@ -592,9 +680,9 @@ def _cmd_geometrica_vertical(args: list[str], edit_id: str | None = None) -> str
     if len(resto) == 1 and resto[0].lower() in ("no-aplica", "no_aplica"):
         return _no_aplica_generico("geometrica-vertical", sentido, "Ia", 1.0, edit_id)
     if len(resto) < 2:
-        raise InvalidInput("Uso: cas irregular geometrica-vertical X|Y no-aplica  O  X|Y D1 D2 D3 ... Dn")
+        raise InvalidInput(f"Uso: {_cmd()} geometrica-vertical X|Y no-aplica  O  X|Y D1 D2 D3 ... Dn")
     ds = [_parse_float(a, f"D{i+1}") for i, a in enumerate(resto)]
-    resultados = verificar_geometrica_vertical_todos(ds)
+    resultados = _V().verificar_geometrica_vertical_todos(ds)
     filas = [{
         "Piso": r["piso"],
         "Dim": r["dim"],
@@ -605,13 +693,13 @@ def _cmd_geometrica_vertical(args: list[str], edit_id: str | None = None) -> str
     ia = 0.90 if existe_alguna else 1.0
     path = _get_project_path()
     if edit_id:
-        actualizar_analisis(path, edit_id, "geometrica-vertical", sentido, ds, ia, "Ia", filas)
+        actualizar_analisis(path, edit_id, "geometrica-vertical", sentido, ds, ia, "Ia", filas, store_name=_store())
         msg_guardado = ""
     else:
-        aid = guardar_analisis(path, "geometrica-vertical", sentido, ds, ia, "Ia", filas)
+        aid = guardar_analisis(path, "geometrica-vertical", sentido, ds, ia, "Ia", filas, store_name=_store())
         msg_guardado = "\n" + ok(f"Guardado (id: {aid})")
     lineas = [
-        heading(f"Irregularidad geometrica vertical (Tabla 8) - Sentido {sentido}\n"),
+        heading(f"Irregularidad geometrica vertical ({_active_cfg.tabla_altura}) - Sentido {sentido}\n"),
         format_table(filas),
         "",
         arrow("Factor Ia a usar: ") + str(ia),
@@ -619,10 +707,12 @@ def _cmd_geometrica_vertical(args: list[str], edit_id: str | None = None) -> str
     return "\n".join(lineas) + msg_guardado
 
 
-_CRITERIO_ESQUINAS = (
-    "Criterio E.030 Tabla 9: existe irregularidad cuando la dimension del entrante es mayor al 20% "
-    "de la dimension total en planta en AMBAS direcciones (A y B). %A = (ea/ta)*100; %B = (eb/tb)*100."
-)
+def _criterio_esquinas_txt() -> str:
+    return (
+        f"Criterio {_active_cfg.norma_label} {_active_cfg.tabla_planta}: existe irregularidad cuando "
+        "la dimension del entrante es mayor al 20% de la dimension total en planta en AMBAS "
+        "direcciones (A y B). %A = (ea/ta)*100; %B = (eb/tb)*100."
+    )
 
 
 def _cmd_esquinas_entrantes(args: list[str], edit_id: str | None = None) -> str:
@@ -634,14 +724,14 @@ def _cmd_esquinas_entrantes(args: list[str], edit_id: str | None = None) -> str:
         filas = [{"Irregular": "No aplica"}]
         datos = [["no-aplica"]]
         if edit_id:
-            actualizar_analisis(path, edit_id, "esquinas-entrantes", sentido, datos, 1.0, "Ip", filas)
+            actualizar_analisis(path, edit_id, "esquinas-entrantes", sentido, datos, 1.0, "Ip", filas, store_name=_store())
             msg_guardado = ""
         else:
-            aid = guardar_analisis(path, "esquinas-entrantes", sentido, datos, 1.0, "Ip", filas)
+            aid = guardar_analisis(path, "esquinas-entrantes", sentido, datos, 1.0, "Ip", filas, store_name=_store())
             msg_guardado = "\n" + ok(f"Guardado (id: {aid})")
         return (
-            heading("Esquinas entrantes (Tabla 9)\n")
-            + dim(_CRITERIO_ESQUINAS + "\n")
+            heading(f"Esquinas entrantes ({_active_cfg.tabla_planta})\n")
+            + dim(_criterio_esquinas_txt() + "\n")
             + dim("No aplica: no existe irregularidad de este tipo.\n")
             + format_table(filas)
             + "\n\n" + arrow("Factor Ip a usar: ") + "1.0"
@@ -649,7 +739,7 @@ def _cmd_esquinas_entrantes(args: list[str], edit_id: str | None = None) -> str:
         )
     if len(resto) < 4 or len(resto) % 4 != 0:
         raise InvalidInput(
-            "Uso: cas irregular esquinas-entrantes no-aplica  O  ea1 eb1 ta1 tb1 ea2 eb2 ta2 tb2 ..."
+            f"Uso: {_cmd()} esquinas-entrantes no-aplica  O  ea1 eb1 ta1 tb1 ea2 eb2 ta2 tb2 ..."
         )
     datos = []
     for i in range(0, len(resto), 4):
@@ -659,7 +749,7 @@ def _cmd_esquinas_entrantes(args: list[str], edit_id: str | None = None) -> str:
             _parse_float(resto[i+2], f"ta{i//4+1}"),
             _parse_float(resto[i+3], f"tb{i//4+1}"),
         ))
-    resultados = verificar_esquinas_entrantes_todos(datos)
+    resultados = _V().verificar_esquinas_entrantes_todos(datos)
     filas = []
     for i, r in enumerate(resultados):
         ea, eb, ta, tb = datos[i]
@@ -677,14 +767,14 @@ def _cmd_esquinas_entrantes(args: list[str], edit_id: str | None = None) -> str:
     ip = 0.90 if existe_alguna else 1.0
     path = _get_project_path()
     if edit_id:
-        actualizar_analisis(path, edit_id, "esquinas-entrantes", sentido, [list(d) for d in datos], ip, "Ip", filas)
+        actualizar_analisis(path, edit_id, "esquinas-entrantes", sentido, [list(d) for d in datos], ip, "Ip", filas, store_name=_store())
         msg_guardado = ""
     else:
-        aid = guardar_analisis(path, "esquinas-entrantes", sentido, [list(d) for d in datos], ip, "Ip", filas)
+        aid = guardar_analisis(path, "esquinas-entrantes", sentido, [list(d) for d in datos], ip, "Ip", filas, store_name=_store())
         msg_guardado = "\n" + ok(f"Guardado (id: {aid})")
     lineas = [
-        heading("Esquinas entrantes (Tabla 9)\n"),
-        dim(_CRITERIO_ESQUINAS + "\n"),
+        heading(f"Esquinas entrantes ({_active_cfg.tabla_planta})\n"),
+        dim(_criterio_esquinas_txt() + "\n"),
         format_table(filas),
         "",
         arrow("Factor Ip a usar: ") + str(ip),
@@ -700,7 +790,7 @@ def _cmd_diafragma(args: list[str], edit_id: str | None = None) -> str:
         return _no_aplica_generico("diafragma", sentido, "Ip", 1.0, edit_id)
     if len(resto) < 4 or len(resto) % 4 != 0:
         raise InvalidInput(
-            "Uso: cas irregular diafragma no-aplica  O  ab1 br1 sn1 st1 ab2 br2 sn2 st2 ...\n"
+            f"Uso: {_cmd()} diafragma no-aplica  O  ab1 br1 sn1 st1 ab2 br2 sn2 st2 ...\n"
             "  ab=abertura, br=area bruta. sn,st=seccion neta y total (0 0 si no aplica criterio 2)."
         )
     datos = []
@@ -712,7 +802,7 @@ def _cmd_diafragma(args: list[str], edit_id: str | None = None) -> str:
         if st == 0:
             sn, st = None, None
         datos.append((ab, br, sn, st))
-    resultados = verificar_diafragma_todos(datos)
+    resultados = _V().verificar_diafragma_todos(datos)
     filas = []
     for i, r in enumerate(resultados):
         ab, br, sn, st = datos[i]
@@ -732,14 +822,14 @@ def _cmd_diafragma(args: list[str], edit_id: str | None = None) -> str:
     path = _get_project_path()
     datos_guardar = [[d[0], d[1], d[2], d[3]] for d in datos]
     if edit_id:
-        actualizar_analisis(path, edit_id, "diafragma", sentido, datos_guardar, ip, "Ip", filas)
+        actualizar_analisis(path, edit_id, "diafragma", sentido, datos_guardar, ip, "Ip", filas, store_name=_store())
         msg_guardado = ""
     else:
-        aid = guardar_analisis(path, "diafragma", sentido, datos_guardar, ip, "Ip", filas)
+        aid = guardar_analisis(path, "diafragma", sentido, datos_guardar, ip, "Ip", filas, store_name=_store())
         msg_guardado = "\n" + ok(f"Guardado (id: {aid})")
     lineas = [
-        heading("Discontinuidad del diafragma (Tabla 9)\n"),
-        dim("Criterio 1: abertura > 50% area bruta. Criterio 2: seccion neta < 25% seccion total.\n"),
+        heading(f"Discontinuidad del diafragma ({_active_cfg.tabla_planta})\n"),
+        dim(_diafragma_criterio_txt()),
         format_table(filas),
         "",
         arrow("Factor Ip a usar: ") + str(ip),
@@ -754,7 +844,7 @@ def _cmd_sistemas_no_paralelos(args: list[str], edit_id: str | None = None) -> s
     if len(resto) == 1 and resto[0].lower() in ("no-aplica", "no_aplica"):
         return _no_aplica_generico("sistemas-no-paralelos", sentido, "Ip", 1.0, edit_id)
     if len(resto) != 1:
-        raise InvalidInput("Uso: cas irregular sistemas-no-paralelos no-aplica  O  angulo")
+        raise InvalidInput(f"Uso: {_cmd()} sistemas-no-paralelos no-aplica  O  angulo")
     angulo = _parse_float(resto[0], "angulo")
     existe = angulo >= 30
     ip = 0.90 if existe else 1.0
@@ -762,16 +852,16 @@ def _cmd_sistemas_no_paralelos(args: list[str], edit_id: str | None = None) -> s
     path = _get_project_path()
     datos = [angulo]
     if edit_id:
-        actualizar_analisis(path, edit_id, "sistemas-no-paralelos", sentido, datos, ip, "Ip", filas)
+        actualizar_analisis(path, edit_id, "sistemas-no-paralelos", sentido, datos, ip, "Ip", filas, store_name=_store())
         msg_guardado = ""
     else:
-        aid = guardar_analisis(path, "sistemas-no-paralelos", sentido, datos, ip, "Ip", filas)
+        aid = guardar_analisis(path, "sistemas-no-paralelos", sentido, datos, ip, "Ip", filas, store_name=_store())
         msg_guardado = "\n" + ok(f"Guardado (id: {aid})")
     nota = ""
     if existe:
         nota = "\n" + dim("Verificar que los elementos no paralelos resistan mas del 10% de la cortante del piso.")
     lineas = [
-        heading("Sistemas no paralelos (Tabla 9)\n"),
+        heading(f"Sistemas no paralelos ({_active_cfg.tabla_planta})\n"),
         dim("No aplica si angulo < 30 grados o si elementos no paralelos resisten < 10% cortante.\n"),
         format_table(filas),
         "",
@@ -789,36 +879,36 @@ def _cmd_discontinuidad(args: list[str], edit_id: str | None = None) -> str:
         filas = [{"Piso": "-", "L": "-", "d": "-", "d/L%": "-", "Clasificacion": "No aplica", "Ia": "1.0"}]
         datos = [["no-aplica"]]
         if edit_id:
-            actualizar_analisis(path, edit_id, "discontinuidad", sentido, datos, 1.0, "Ia", filas)
+            actualizar_analisis(path, edit_id, "discontinuidad", sentido, datos, 1.0, "Ia", filas, store_name=_store())
             msg_guardado = ""
         else:
-            aid = guardar_analisis(path, "discontinuidad", sentido, datos, 1.0, "Ia", filas)
+            aid = guardar_analisis(path, "discontinuidad", sentido, datos, 1.0, "Ia", filas, store_name=_store())
             msg_guardado = "\n" + ok(f"Guardado (id: {aid})")
         return (
-            heading("Discontinuidad sistemas resistentes (Tabla 8)\n")
+            heading(f"Discontinuidad sistemas resistentes ({_active_cfg.tabla_altura})\n")
             + dim("No aplica: solo aplica cuando el elemento resiste mas del 10% de la fuerza cortante del piso.\n")
             + format_table(filas)
             + "\n\n" + arrow("Factor Ia a usar: ") + "1.0"
             + msg_guardado
         )
     if len(resto) < 2 or len(resto) % 2 != 0:
-        raise InvalidInput("Uso: cas irregular discontinuidad no-aplica  O  L1 d1 L2 d2 ...")
+        raise InvalidInput(f"Uso: {_cmd()} discontinuidad no-aplica  O  L1 d1 L2 d2 ...")
     pares = [(resto[i], resto[i + 1]) for i in range(0, len(resto), 2)]
     datos = [(_parse_float(L, f"L{i+1}"), _parse_float(d, f"d{i+1}")) for i, (L, d) in enumerate(pares)]
-    resultados = verificar_discontinuidad_unificado_desalineamiento(datos)
+    resultados = _V().verificar_discontinuidad_unificado_desalineamiento(datos)
     filas = [{"Piso": r["piso"], "L": r["L"], "d": r["d"], "d/L%": r["d/L%"],
               "Clasificacion": r["clasificacion"], "Ia": r["Ia"]} for r in resultados]
     ia_edificio = min(r["Ia"] for r in resultados)
     path = _get_project_path()
     datos_guardar = [[L, d] for L, d in datos]
     if edit_id:
-        actualizar_analisis(path, edit_id, "discontinuidad", sentido, datos_guardar, ia_edificio, "Ia", filas)
+        actualizar_analisis(path, edit_id, "discontinuidad", sentido, datos_guardar, ia_edificio, "Ia", filas, store_name=_store())
         msg_guardado = ""
     else:
-        aid = guardar_analisis(path, "discontinuidad", sentido, datos_guardar, ia_edificio, "Ia", filas)
+        aid = guardar_analisis(path, "discontinuidad", sentido, datos_guardar, ia_edificio, "Ia", filas, store_name=_store())
         msg_guardado = "\n" + ok(f"Guardado (id: {aid})")
     lineas = [
-        heading("Discontinuidad sistemas resistentes (Tabla 8)\n"),
+        heading(f"Discontinuidad sistemas resistentes ({_active_cfg.tabla_altura})\n"),
         dim("Solo aplica cuando el elemento resiste mas del 10% de la fuerza cortante del piso.\n"),
         dim("L=longitud elemento, d=distancia desalineamiento. Calcula d/L%. Si d/L>25% -> Discontinuidad (Ia=0.80).\n"),
         format_table(filas),

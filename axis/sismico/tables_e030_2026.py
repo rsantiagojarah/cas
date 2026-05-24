@@ -243,6 +243,8 @@ def obtener_r0(sistema: str) -> float:
 def obtener_distorsion_maxima(material: str) -> float:
     """Retorna distorsión máxima (Δ/h) según material predominante."""
     clave = material.strip().lower()
+    if clave == "albañileria":
+        clave = "albanileria"
     if clave not in DISTORSION_MAXIMA:
         raise ValueError(f"Material debe ser uno de {list(DISTORSION_MAXIMA)}. Recibido: {material}")
     return DISTORSION_MAXIMA[clave]

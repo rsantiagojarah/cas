@@ -3,7 +3,7 @@
 Registro: ("diseno", "muro")
 Entradas (data):
   - nombre, hm, lm, t, fc, fy, fyt, Pu, Vu, Mu  (obligatorios)
-  - delta_u, c, Mn_manual, boundary_method, joint_Av, joint_mu (opcionales)
+  - delta_u, c, Mn_manual, boundary_method, joint_Av, joint_mu, R (opcionales)
   Unidades internas: cm, kg, kg/cm², kg·cm
 """
 
@@ -41,6 +41,7 @@ def diseno_muro(data: dict) -> dict:
     b_method = data.get("boundary_method")
     j_Av = to_float(data.get("joint_Av"), default=None) if "joint_Av" in data else None
     j_mu = to_float(data.get("joint_mu"), default=1.0)
+    R = to_float(data["R"]) if "R" in data else 6.0
 
     if hm <= 0 or lm <= 0 or t <= 0:
         raise InvalidInput("hm, lm, t deben ser positivos.")
@@ -59,10 +60,11 @@ def diseno_muro(data: dict) -> dict:
         boundary_method=b_method,
         joint_Av=j_Av,
         joint_mu=j_mu,
+        R=R,
         vu_for_min_steel=abs(Vu),
     )
 
-    return _serialize(result)
+    return _serialize(result, R=R)
 
 
 @register("diseno", "muro_multi")
@@ -111,7 +113,7 @@ def diseno_muro_multi(data: dict) -> dict:
     j_Av = to_float(data.get("joint_Av"), default=None) if data.get("joint_Av") else None
     j_mu = to_float(data.get("joint_mu"), default=1.0)
     k = to_float(data.get("k_buckling"), default=1.0)
-    R = to_float(data.get("R"), default=None) if "R" in data else None
+    R = to_float(data.get("R"), default=6.0) if data.get("R") not in (None, "") else 6.0
 
     result = design_wall_multi_story(
         nombre=nombre, lm=lm, t=t, mat=mat,
@@ -151,13 +153,12 @@ def _serialize_multi(r, R: float | None = None) -> dict:
         "k_buckling": r.k_buckling,
         "phi_Pn_compresion": round(r.compression_phi_Pn, 2) if r.compression_phi_Pn else None,
         "diseno_ok": r.ok,
+        "R": R if R is not None else 6.0,
     }
-    if R is not None:
-        out["R"] = R
     return out
 
 
-def _serialize(r) -> dict:
+def _serialize(r, R: float | None = None) -> dict:
     """Convierte WallDesignResult a dict plano para almacenamiento/tabla."""
     f = r.flexure
     s = r.shear
@@ -200,5 +201,6 @@ def _serialize(r) -> dict:
         "mu_joint": round(j.mu, 2) if j else None,
         # Global
         "diseno_ok": r.ok,
+        "R": R if R is not None else 6.0,
     }
     return out

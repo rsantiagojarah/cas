@@ -244,7 +244,9 @@ def paso14_cortante_minima(
     ]
     salida += table_label("Tabla - Cortante en la base:\n")
     salida += format_table(tabla_resumen)
-    v_usada = abs(dinamico_esc if requiere_escalar else dinamico)
+    from axis.sismico.etapa3_analisis import DECIMALES_CORTANTE_TN
+
+    v_usada = round(abs(dinamico_esc if requiere_escalar else dinamico), DECIMALES_CORTANTE_TN)
     necesita_txt = "Si" if requiere_escalar else "No"
     cumple_txt = ok("Si") if cumple_con else fail("No")
     salida += f"\n{bold('Necesita escalar')}: {necesita_txt}"

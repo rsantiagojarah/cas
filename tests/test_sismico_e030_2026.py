@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from axis.sismico.etapa1_peligro_2026 import factor_amplificacion_c
 from axis.sismico.etapa4_validacion_2026 import separacion_edificios
+from axis.sismico.tables_e030 import obtener_distorsion_maxima as obtener_distorsion_maxima_legacy
 from axis.sismico.tables_e030_2026 import (
     obtener_distorsion_maxima,
     obtener_parametros_sitio,
@@ -52,10 +54,12 @@ class SismoE030ActualizacionTests(unittest.TestCase):
     def test_factor_c_cuatro_tramos_y_estatico(self) -> None:
         tp = 0.6
         tl = 3.0
+        self.assertAlmostEqual(factor_amplificacion_c(0.0, tp, tl), 1.0)
         self.assertAlmostEqual(factor_amplificacion_c(0.05, tp, tl), 1.625)
         self.assertAlmostEqual(factor_amplificacion_c(0.30, tp, tl), 2.5)
         self.assertAlmostEqual(factor_amplificacion_c(1.20, tp, tl), 1.25)
         self.assertAlmostEqual(factor_amplificacion_c(4.0, tp, tl), 0.28125)
+        self.assertAlmostEqual(factor_amplificacion_c(0.0, tp, tl, modo_estatico=True), 2.5)
         self.assertAlmostEqual(factor_amplificacion_c(0.10, tp, tl, modo_estatico=True), 2.5)
 
     def test_separacion_nueva_formula(self) -> None:
@@ -75,6 +79,12 @@ class SismoE030ActualizacionTests(unittest.TestCase):
 
     def test_distorsion_emdl_actualizada(self) -> None:
         self.assertAlmostEqual(obtener_distorsion_maxima("emdl"), 0.004)
+
+    def test_distorsion_acepta_albanileria_con_y_sin_enie(self) -> None:
+        self.assertAlmostEqual(obtener_distorsion_maxima("albanileria"), 0.005)
+        self.assertAlmostEqual(obtener_distorsion_maxima("albañileria"), 0.005)
+        self.assertAlmostEqual(obtener_distorsion_maxima_legacy("albanileria"), 0.005)
+        self.assertAlmostEqual(obtener_distorsion_maxima_legacy("albañileria"), 0.005)
 
     @patch("axis.cli.sismo_handlers_2026._get_project_path", return_value=Path("."))
     @patch("axis.data.etabs_table_reader.clear_table_cache")
@@ -149,6 +159,25 @@ class SismoE030ActualizacionTests(unittest.TestCase):
         salida = handle_sismo_separacion(["10", "4", "s3", "0.01", "0.01"])
         self.assertIn("0.02·Z·S·h", salida)
         self.assertIn("0.1080", salida)
+
+    def test_exporta_tabla_sa_unicode_para_etabs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ruta = Path(tmpdir) / "espectro.txt"
+            with patch("axis.cli.sismo_handlers_2026.seleccionar_ruta_guardado", return_value=ruta):
+                salida = handle_sismo_2026(["X", "3", "C", "S2", "3.5", "1", "1", "Sa"])
+            self.assertTrue(ruta.exists())
+            contenido = ruta.read_text(encoding="ascii")
+            self.assertNotIn("Periodo\tSa/g", contenido)
+            self.assertIn("0.0500\t", contenido)
+            self.assertIn("15.0000\t", contenido)
+            self.assertIn("Archivo ETABS guardado en", salida)
+            self.assertIn("TABLA ETABS E.030 2026", salida)
+
+    @patch("axis.cli.sismo_handlers_2026.seleccionar_ruta_guardado", return_value=None)
+    def test_exportar_sa_reporta_cancelacion(self, _mock_guardado) -> None:
+        salida = handle_sismo_2026(["Y", "3", "C", "S2", "3.5", "1", "1", "Sa"])
+        self.assertIn("Guardado cancelado", salida)
+        self.assertIn("Sa/g", salida)
 
     @patch("axis.cli.sismo_handlers_2026.handle_sismo_calcular", return_value="OK")
     def test_cli_rapido_reporta_irregularidad_extrema(self, mock_calcular) -> None:

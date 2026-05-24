@@ -8,12 +8,16 @@ from datetime import datetime
 from pathlib import Path
 
 
-def _get_store_path(project_path: Path) -> Path:
-    return project_path / "results" / "irregularidades.json"
+DEFAULT_STORE = "irregularidades.json"
+STORE_2026 = "irregularidades_2026.json"
 
 
-def _load_store(project_path: Path) -> list[dict]:
-    p = _get_store_path(project_path)
+def _get_store_path(project_path: Path, store_name: str = DEFAULT_STORE) -> Path:
+    return project_path / "results" / store_name
+
+
+def _load_store(project_path: Path, store_name: str = DEFAULT_STORE) -> list[dict]:
+    p = _get_store_path(project_path, store_name)
     if not p.exists():
         return []
     try:
@@ -23,8 +27,8 @@ def _load_store(project_path: Path) -> list[dict]:
         return []
 
 
-def _save_store(project_path: Path, analisis: list[dict]) -> None:
-    p = _get_store_path(project_path)
+def _save_store(project_path: Path, analisis: list[dict], store_name: str = DEFAULT_STORE) -> None:
+    p = _get_store_path(project_path, store_name)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps({"analisis": analisis}, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -38,9 +42,10 @@ def guardar_analisis(
     factor_tipo: str,
     filas: list[dict],
     metadata: dict | None = None,
+    store_name: str = DEFAULT_STORE,
 ) -> str:
     """Guarda un analisis. Retorna id. metadata: dict opcional (ej. material para torsional)."""
-    analisis = _load_store(project_path)
+    analisis = _load_store(project_path, store_name)
     aid = str(uuid.uuid4())[:8]
     rec = {
         "id": aid,
@@ -55,13 +60,18 @@ def guardar_analisis(
     if metadata:
         rec["metadata"] = metadata
     analisis.append(rec)
-    _save_store(project_path, analisis)
+    _save_store(project_path, analisis, store_name)
     return aid
 
 
-def listar_analisis(project_path: Path, tipo: str | None = None, sentido: str | None = None) -> list[dict]:
+def listar_analisis(
+    project_path: Path,
+    tipo: str | None = None,
+    sentido: str | None = None,
+    store_name: str = DEFAULT_STORE,
+) -> list[dict]:
     """Lista analisis guardados, opcionalmente filtrados."""
-    analisis = _load_store(project_path)
+    analisis = _load_store(project_path, store_name)
     if tipo:
         analisis = [a for a in analisis if a.get("tipo") == tipo]
     if sentido:
@@ -69,21 +79,21 @@ def listar_analisis(project_path: Path, tipo: str | None = None, sentido: str | 
     return analisis
 
 
-def obtener_analisis(project_path: Path, aid: str) -> dict | None:
+def obtener_analisis(project_path: Path, aid: str, store_name: str = DEFAULT_STORE) -> dict | None:
     """Obtiene un analisis por id."""
-    for a in _load_store(project_path):
+    for a in _load_store(project_path, store_name):
         if a.get("id") == aid:
             return a
     return None
 
 
-def eliminar_analisis(project_path: Path, aid: str) -> bool:
+def eliminar_analisis(project_path: Path, aid: str, store_name: str = DEFAULT_STORE) -> bool:
     """Elimina un analisis. Retorna True si existia."""
-    analisis = _load_store(project_path)
+    analisis = _load_store(project_path, store_name)
     nuevo = [a for a in analisis if a.get("id") != aid]
     if len(nuevo) == len(analisis):
         return False
-    _save_store(project_path, nuevo)
+    _save_store(project_path, nuevo, store_name)
     return True
 
 
@@ -97,9 +107,10 @@ def actualizar_analisis(
     factor_tipo: str,
     filas: list[dict],
     metadata: dict | None = None,
+    store_name: str = DEFAULT_STORE,
 ) -> bool:
     """Reemplaza un analisis por id. Retorna True si existia."""
-    analisis = _load_store(project_path)
+    analisis = _load_store(project_path, store_name)
     for i, a in enumerate(analisis):
         if a.get("id") == aid:
             rec = {
@@ -115,6 +126,6 @@ def actualizar_analisis(
             if metadata:
                 rec["metadata"] = metadata
             analisis[i] = rec
-            _save_store(project_path, analisis)
+            _save_store(project_path, analisis, store_name)
             return True
     return False

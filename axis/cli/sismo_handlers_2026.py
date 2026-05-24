@@ -2,12 +2,33 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from axis.core.exceptions import InvalidInput
 from axis.core.project import get_active_project_path
 from axis.core.database import write_results_csv, read_results_csv
+from axis.cli.file_picker import seleccionar_ruta_guardado
 from axis.cli.tables import format_table
-from axis.cli.colors import heading, dim, yellow
-from axis.sismico.tables_e030_2026 import obtener_distorsion_maxima, obtener_parametros_sitio, obtener_z
+from axis.cli.colors import heading, dim, yellow, ok
+from axis.cli.sismo_crud_2026 import (
+    cmd_sismo_delete,
+    cmd_sismo_edit,
+    cmd_sismo_list,
+    cmd_sismo_report,
+    cmd_sismo_show,
+)
+from axis.sismico.sismo_persistencia_2026 import (
+    actualizar_analisis_sismo,
+    guardar_analisis_sismo,
+)
+from axis.sismico.etapa1_peligro_2026 import tabla_c_vs_t
+from axis.sismico.etapa2_edificio import coeficiente_reduccion_r
+from axis.sismico.tables_e030_2026 import (
+    obtener_distorsion_maxima,
+    obtener_parametros_sitio,
+    obtener_u,
+    obtener_z,
+)
 from axis.sismico.etapa4_validacion_2026 import separacion_edificios
 from axis.sismico.flujo_sismo_2026 import ejecutar_analisis_sismico
 from axis.sismico.irregularidades_e030_2026 import (
@@ -55,7 +76,24 @@ def handle_sismo_2026(args: list[str]) -> str:
         return handle_sismo_rapido(args[1:])
     if sub in ("help", "-h", "--help"):
         return _sismo_help_2026()
+    if sub == "list":
+        return cmd_sismo_list(_get_project_path(), args[1:])
+    if sub == "show":
+        return cmd_sismo_show(_get_project_path(), args[1:])
+    if sub == "delete":
+        return cmd_sismo_delete(_get_project_path(), args[1:])
+    if sub == "edit":
+        return cmd_sismo_edit(
+            _get_project_path(),
+            args[1:],
+            handle_sismo_calcular,
+            handle_sismo_rapido,
+        )
+    if sub == "report":
+        return cmd_sismo_report(_get_project_path(), args[1:])
     if len(args) >= 8:
+        if len(args) == 8 and args[7].strip().lower() == "sa":
+            return handle_sismo_exportar_sa(args)
         return handle_sismo_calcular(args)
     return _sismo_help_2026()
 
@@ -63,10 +101,12 @@ def handle_sismo_2026(args: list[str]) -> str:
 def _sismo_help_2026() -> str:
     return (
         "Analisis sismico E.030 2026 (un sentido X o Y):\n"
-        "  cas sismo 2026 <sentido> Z U perfil R Ia Ip Material [nombre_guardar]\n\n"
-        "8 parametros obligatorios: sentido=X|Y, Z=1-4, U=A-D, perfil=S0-S5, R=8|7|6|5|4|3.5|3, Ia, Ip, Material\n"
+        "  cas sismo 2026 <sentido> Z U perfil R Ia Ip Material [nombre_guardar]\n"
+        "  cas sismo 2026 <sentido> Z U perfil R Ia Ip Sa\n\n"
+        "8 parametros obligatorios: sentido=X|Y, Z=1-4, U=A-D, perfil=S0-S5, R=8|7|6|5|4|3.5|3, Ia, Ip, Material|Sa\n"
         "Opcional 9º parametro 'nombre_guardar': guarda en results/ Markdown (.md) y Word (.docx).\n\n"
-        "Material: concreto|acero|albanileria|madera|emdl. Ej: cas sismo X 3 C S2 8 1 1 concreto\n\n"
+        "Material: concreto|acero|albañileria|madera|emdl. Ej: cas sismo 2026 X 3 C S2 8 1 1 concreto\n"
+        "Sa: exporta tabla Unicode Periodo y Sa/g para importar a ETABS, abriendo una ventana de guardado.\n\n"
         "Atajo rapido (calcula Ia/Ip por codigos):\n"
         "  cas sismo 2026 rapido <sentido> Z U perfil R Material <cod_altura> <cod_planta> [nombre_guardar]\n"
         "  Ej: cas sismo 2026 rapido X 3 C S2 8 concreto rb,masa tors\n\n"
@@ -76,6 +116,13 @@ def _sismo_help_2026() -> str:
         "Separacion:\n"
         "  cas sismo 2026 separacion <h> <Z> <perfil|S> [da db]\n"
         "  cas sismo 2026 separacion <h> [da db]   (compatibilidad parcial)\n\n"
+        "Persistencia:\n"
+        "  cas sismo 2026 list [X|Y]              Listar analisis guardados\n"
+        "  cas sismo 2026 show [id]               Mostrar analisis\n"
+        "  cas sismo 2026 delete <id>             Borrar analisis\n"
+        "  cas sismo 2026 edit <id> <sentido> Z U perfil R Ia Ip Material [nombre]\n"
+        "  cas sismo 2026 edit <id> rapido <sentido> Z U perfil R Material <cod_alt> <cod_planta>\n"
+        "  cas sismo 2026 report [nombre]         Reporte consolidado (ultimo por sentido X/Y)\n\n"
         "Otros: cas sismo 2026 results"
     )
 
@@ -185,7 +232,127 @@ def _construir_salida_pasos(result: dict, sentido: str, zona: int, perfil: str,
     return salidas, md_partes
 
 
-def handle_sismo_calcular(args: list[str]) -> str:
+def _serializar_tabla_unicode_sa(filas: list[dict[str, float]]) -> str:
+    lineas = [f'{fila["Periodo"]:.4f}\t{fila["Sa/g"]:.6f}' for fila in filas]
+    return "\n".join(lineas) + "\n"
+
+
+def _tabla_preview_sa(filas: list[dict[str, float]], limite: int = 12) -> str:
+    preview = filas[:limite]
+    texto = format_table(preview) if preview else "Sin datos."
+    if len(filas) > limite:
+        texto += f"\n... {len(filas) - limite} filas adicionales"
+    return texto
+
+
+def _generar_filas_sa_g_2026(
+    zona: int,
+    categoria: str,
+    perfil: str,
+    r0: float,
+    ia: float,
+    ip: float,
+) -> tuple[list[dict[str, float]], list[str], dict[str, float]]:
+    z = obtener_z(zona)
+    params = obtener_parametros_sitio(perfil, zona)
+    advertencias = list(params.get("advertencias", []))
+    if params.get("requiere_estudio") or params.get("tp") is None or params.get("s") is None:
+        estado = params.get("estado", "requiere_estudio")
+        if estado == "requiere_respuesta_sitio":
+            raise InvalidInput("Zona 4 + perfil S4 requiere analisis de respuesta de sitio.")
+        if perfil.strip().lower() == "s5":
+            raise InvalidInput("Perfil S5 requiere tratamiento especial y no puede cerrarse con el flujo actual.")
+        raise InvalidInput("El perfil de suelo requiere estudio o datos adicionales para cerrar el calculo.")
+    u = obtener_u(categoria)
+    if categoria.strip().upper() in {"A", "B"} and zona == 4:
+        advertencias.append(
+            "Categoria A/B en zona 4: la verificacion de Ts por H/V no esta disponible en el flujo actual."
+        )
+    if abs(ia - 1.0) > 1e-6 or abs(ip - 1.0) > 1e-6:
+        advertencias.append(
+            "Con Ia/Ip ingresados manualmente no se puede verificar si la irregularidad es extrema o restringida por categoria/zona."
+        )
+    r = coeficiente_reduccion_r(r0, ia, ip)
+    periodos = [round(i * 0.05, 4) for i in range(1, int(15.0 / 0.05) + 1)]
+    filas = [
+        {"Periodo": round(t, 4), "Sa/g": round(z * u * c * params["s"] / r, 6)}
+        for t, c in tabla_c_vs_t(params["tp"], params["tl"], periodos=periodos)
+    ]
+    return filas, advertencias, {
+        "z": z,
+        "u": u,
+        "s": params["s"],
+        "tp": params["tp"],
+        "tl": params["tl"],
+        "r": r,
+    }
+
+
+def handle_sismo_exportar_sa(args: list[str]) -> str:
+    if len(args) != 8:
+        raise InvalidInput("Uso: cas sismo 2026 <sentido> Z U perfil R Ia Ip Sa")
+    sentido = args[0].strip().upper()
+    if sentido not in ("X", "Y"):
+        raise InvalidInput("Sentido debe ser X o Y.")
+    try:
+        zona = int(args[1])
+        r0 = float(args[4])
+        ia = float(args[5])
+        ip = float(args[6])
+    except ValueError:
+        raise InvalidInput("Z, R, Ia e Ip deben ser numeros validos.")
+    if r0 not in R0_VALIDOS:
+        raise InvalidInput("R debe ser 8, 7, 6, 5, 4, 3.5 o 3.")
+    categoria = args[2].strip().upper()
+    perfil = args[3].strip().lower()
+    filas, advertencias, meta = _generar_filas_sa_g_2026(zona, categoria, perfil, r0, ia, ip)
+    ruta = seleccionar_ruta_guardado(
+        titulo="Guardar espectro ETABS E.030 2026",
+        archivo_inicial=f"espectro_etabs_2026_{sentido}.txt",
+        extension_defecto=".txt",
+        tipos_archivo=[("Texto Unicode", "*.txt"), ("Todos los archivos", "*.*")],
+    )
+    salidas = [
+        heading(f"TABLA ETABS E.030 2026 - SENTIDO {sentido}\n") + dim("=" * 50),
+        dim(
+            f"Parametros: Z={meta['z']:.2f}, U={meta['u']:.2f}, S={meta['s']:.2f}, "
+            f"Tp={meta['tp']:.2f}, Tl={meta['tl']:.2f}, R={meta['r']:.4f}"
+        ),
+        dim("Archivo ETABS: 2 columnas tabuladas sin cabecera. Use 'Header Lines to Skip = 0'."),
+    ]
+    if advertencias:
+        salidas.append(yellow("ADVERTENCIAS NORMATIVAS\n" + "\n".join(f"- {msg}" for msg in advertencias)))
+    salidas.append(_tabla_preview_sa(filas))
+    if ruta is None:
+        salidas.append(yellow("Guardado cancelado. No se genero archivo."))
+        return "\n\n".join(salidas)
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    ruta.write_text(_serializar_tabla_unicode_sa(filas), encoding="ascii")
+    salidas.append(dim(f"Archivo ETABS guardado en: {ruta}"))
+    return "\n\n".join(salidas)
+
+
+def _registrar_analisis_2026(
+    path: Path,
+    parametros: dict,
+    md_partes: list[str],
+    salidas: list[str],
+    edit_id: str | None,
+) -> str:
+    texto = _strip_ansi("\n".join(salidas))
+    if edit_id:
+        if actualizar_analisis_sismo(path, edit_id, parametros, md_partes, texto):
+            return f"\n\n" + ok(f"Actualizado (id: {edit_id})")
+        return f"\n\n" + dim(f"No se pudo actualizar id '{edit_id}'.")
+    aid = guardar_analisis_sismo(path, parametros, md_partes, texto)
+    return f"\n\n" + ok(f"Guardado (id: {aid})")
+
+
+def handle_sismo_calcular(
+    args: list[str],
+    edit_id: str | None = None,
+    parametros_extra: dict | None = None,
+) -> str:
     """Flujo E.030: orquestación en flujo_sismo, presentación aquí."""
     from axis.data.etabs_table_reader import clear_table_cache
     clear_table_cache()
@@ -212,7 +379,7 @@ def handle_sismo_calcular(args: list[str]) -> str:
     mat_in = args[7].strip().lower()
     material = MATERIAL_MAP.get(mat_in, mat_in)
     if material not in MATERIAL_MAP.values():
-        raise InvalidInput("Material: concreto, acero, albanileria, madera o emdl.")
+        raise InvalidInput("Material: concreto, acero, albañileria, madera o emdl.")
     save_name = args[8].strip() if len(args) > 8 else ""
     path = _get_project_path()
     source = EtabsSource()
@@ -227,8 +394,22 @@ def handle_sismo_calcular(args: list[str]) -> str:
         result, sentido, zona, perfil, categoria, r0, ia, ip, material
     )
     resultado = "\n".join(salidas)
+    parametros = {
+        "modo": "manual",
+        "sentido": sentido,
+        "zona": zona,
+        "categoria": categoria,
+        "perfil": perfil,
+        "r0": r0,
+        "ia": ia,
+        "ip": ip,
+        "material": material,
+        "nombre": save_name,
+    }
+    if parametros_extra:
+        parametros.update(parametros_extra)
+    resultado += _registrar_analisis_2026(path, parametros, md_partes, salidas, edit_id)
     if save_name:
-        from pathlib import Path
         from axis.reportes.docx_sismo import generar_docx_sismo
         nombre_limpio = "".join(c for c in save_name if c.isalnum() or c in ("-", "_")).strip() or "analisis"
         base = f"sismo_analisis_2026_{sentido}_{nombre_limpio}"
@@ -237,10 +418,10 @@ def handle_sismo_calcular(args: list[str]) -> str:
             results_dir.mkdir(parents=True, exist_ok=True)
             (results_dir / (base + ".md")).write_text("\n".join(md_partes), encoding="utf-8")
             docx_ok = generar_docx_sismo(md_partes, str(results_dir / (base + ".docx")))
-            msg = f"Analisis guardado en results/: '{base}.md'" + (f", '{base}.docx'" if docx_ok else "")
+            msg = f"Archivos en results/: '{base}.md'" + (f", '{base}.docx'" if docx_ok else "")
             resultado += "\n\n" + dim(msg)
         except Exception as e:  # pragma: no cover
-            resultado += "\n\n" + dim(f"No se pudo guardar analisis: {e}")
+            resultado += "\n\n" + dim(f"No se pudo guardar archivos: {e}")
     return resultado
 
 
@@ -389,7 +570,7 @@ def handle_sismo_irregularidades(args: list[str]) -> str:
     raise InvalidInput("Subcomando desconocido en irregularidades. Use: calcular")
 
 
-def handle_sismo_rapido(args: list[str]) -> str:
+def handle_sismo_rapido(args: list[str], edit_id: str | None = None) -> str:
     """
     cas sismo rapido <sentido> Z U perfil R Material <cod_altura> <cod_planta> [nombre_guardar]
     Convierte codigos E.030 en Ia/Ip y ejecuta el flujo normal.
@@ -424,5 +605,13 @@ def handle_sismo_rapido(args: list[str]) -> str:
     cab = _resumen_factores(factores)
     if advertencias:
         cab += "\n\n" + "\n".join(f"ADVERTENCIA: {msg}" for msg in advertencias)
-    resultado = handle_sismo_calcular(normales)
+    resultado = handle_sismo_calcular(
+        normales,
+        edit_id=edit_id,
+        parametros_extra={
+            "modo": "rapido",
+            "cod_altura": cod_altura,
+            "cod_planta": cod_planta,
+        },
+    )
     return cab + "\n\n" + resultado

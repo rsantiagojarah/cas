@@ -5,6 +5,7 @@ Periodo fundamental, masa participante, peso, story forces y cortante mínima (E
 
 from __future__ import annotations
 
+import math
 from typing import Optional, Any
 
 import pandas as pd
@@ -20,6 +21,23 @@ GRAVEDAD = 9.80665
 UMBRAL_MASA_PARTICIPANTE = 0.90
 UMBRAL_CORTANTE_MINIMA_REGULAR = 0.80
 UMBRAL_CORTANTE_MINIMA_IRREGULAR = 0.90
+DECIMALES_CORTANTE_TN = 2
+
+
+def cortante_minima_requerida(abs_estatico: float, umbral: float) -> float:
+    """Cortante dinamica minima (Tn), redondeada como en tablas de salida."""
+    return round(umbral * abs(abs_estatico), DECIMALES_CORTANTE_TN)
+
+
+def cortante_cumple_umbral(abs_dinamico: float, abs_estatico: float, umbral: float) -> bool:
+    """
+    True si |Vdin| >= umbral * |Vest| usando la misma precision que la salida CLI (2 decimales).
+    Evita falsos 'No cumple' por error de punto flotante tras escalar con gamma.
+    """
+    abs_est = abs(abs_estatico)
+    if abs_est <= 0:
+        return True
+    return round(abs(abs_dinamico), DECIMALES_CORTANTE_TN) >= cortante_minima_requerida(abs_est, umbral)
 
 
 def _normalizar_columnas(df: pd.DataFrame) -> pd.DataFrame:
@@ -290,20 +308,18 @@ def verificar_cortante_minima_etabs(
             abs_est = abs(v_est)
             abs_din = abs(v_din)
             ratio = abs_din / abs_est if abs_est else 0.0
-            cortante_minima = umbral * abs_est
-            # Verificación sin escalar
-            cumple_sin_escalar = ratio >= umbral
+            cortante_minima = cortante_minima_requerida(abs_est, umbral)
+            cumple_sin_escalar = cortante_cumple_umbral(abs_din, abs_est, umbral)
             if not cumple_sin_escalar and abs_din > 0:
-                # Factor de escalamiento dinámico para alcanzar la cortante mínima requerida
                 factor_escala = cortante_minima / abs_din
-                v_din_escalado = factor_escala * v_din
+                v_din_escalado = math.copysign(cortante_minima, v_din)
             else:
                 factor_escala = 1.0
                 v_din_escalado = v_din
             abs_din_esc = abs(v_din_escalado)
             ratio_escalado = abs_din_esc / abs_est if abs_est else 0.0
             requiere_escalar = (not cumple_sin_escalar) and abs_din > 0 and abs_est > 0
-            cumple_con_escalar = ratio_escalado >= umbral if abs_est else True
+            cumple_con_escalar = cortante_cumple_umbral(abs_din_esc, abs_est, umbral)
         resultado[key] = {
             "cortante_estatico": v_est,
             "cortante_dinamico": v_din,

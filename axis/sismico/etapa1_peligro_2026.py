@@ -14,7 +14,8 @@ def factor_amplificacion_c(t: float, tp: float, tl: float, modo_estatico: bool =
     """
     Factor de amplificación sísmica C según E.030 2026 resumida.
     - Estático: para 0 <= T <= Tp, C = 2.5
-    - Dinámico:
+    - Dinámico (Tabla 6 / SKILL seccion 11 y 31):
+      T=0: C=1 (limite del tramo 1)
       T < 0.2Tp: C = 1 + 7.5(T/Tp)
       0.2Tp <= T <= Tp: C = 2.5
       Tp < T < Tl: C = 2.5(Tp/T)
@@ -22,10 +23,10 @@ def factor_amplificacion_c(t: float, tp: float, tl: float, modo_estatico: bool =
     """
     if tp <= 0 or tl <= 0:
         raise ValueError("Tp y Tl deben ser mayores que 0.")
-    if t <= 0:
-        return 2.5
     if modo_estatico and t <= tp:
         return 2.5
+    if t <= 0:
+        return 1.0
     if t < 0.2 * tp:
         return 1.0 + 7.5 * (t / tp)
     if t <= tp:

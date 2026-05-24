@@ -50,3 +50,46 @@ def seleccionar_archivo_diagrama(
         except Exception:
             pass
         return None
+
+
+def seleccionar_ruta_guardado(
+    titulo: str = "Guardar archivo",
+    archivo_inicial: str = "salida.txt",
+    directorio_inicial: Optional[str] = None,
+    extension_defecto: str = ".txt",
+    tipos_archivo: Optional[list[tuple[str, str]]] = None,
+) -> Optional[Path]:
+    """
+    Muestra un diálogo para elegir dónde guardar un archivo.
+
+    Returns:
+        Path de salida o None si se cancela.
+    """
+    if not _TK_AVAILABLE:
+        return None
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    tipos = tipos_archivo or [
+        ("Texto Unicode", "*.txt"),
+        ("CSV", "*.csv"),
+        ("Todos los archivos", "*.*"),
+    ]
+    try:
+        archivo = filedialog.asksaveasfilename(
+            title=titulo,
+            initialdir=directorio_inicial,
+            initialfile=archivo_inicial,
+            filetypes=tipos,
+            defaultextension=extension_defecto,
+        )
+        root.destroy()
+        if archivo:
+            return Path(archivo)
+        return None
+    except Exception:
+        try:
+            root.destroy()
+        except Exception:
+            pass
+        return None
