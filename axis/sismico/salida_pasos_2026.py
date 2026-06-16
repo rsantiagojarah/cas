@@ -47,12 +47,12 @@ def paso2_perfil_desc(perfil: str) -> str:
 
 
 def paso3_perfil_stptl(zona: int, perfil: str, s_val: Any, tp: Any, tl: Any) -> str:
-    """Paso 3: Tablas N° 3 (Factor S) y N° 4 (Tp, Tl) + valores usados."""
+    """Paso 3: Tablas N° 4 (Factor S) y N° 5 (Tp, Tl) + valores usados."""
     salida = heading("3 - Parametros de sitio S, Tp, Tl\n")
-    salida += table_label("Tabla N° 3 - Factor de Suelo S (Zona x Perfil):\n") + format_table(TABLA_FACTOR_SUELO_S)
-    salida += "\n" + table_label("Tabla N° 4 - Períodos Tp y Tl (s):\n") + format_table(TABLA_PERIODOS_TP_TL)
+    salida += table_label("Tabla N° 4 - Factor de Suelo S (Zona x Perfil):\n") + format_table(TABLA_FACTOR_SUELO_S)
+    salida += "\n" + table_label("Tabla N° 5 - Períodos Tp y Tl (s):\n") + format_table(TABLA_PERIODOS_TP_TL)
     salida += "\n\n" + arrow(f"Zona {zona}, Perfil {perfil.upper()}: S={s_val}, Tp={tp} s, Tl={tl} s")
-    salida += "\n" + dim("* En S2 y S3, Tp puede interpolarse con Vs; sin Vs se usa el default normativo resumido.")
+    salida += "\n" + dim("* En S2 y S3, S, Tp y Tl se interpolan con Vs30; sin Vs30 se usa el extremo conservador.")
     return salida
 
 
@@ -61,7 +61,7 @@ def paso4_categoria_c_spectrum(categoria: str, u: float, filas_ct: list[dict]) -
     salida = heading("4 - Categoria y espectro C vs T\n")
     salida += table_label("Tabla - Categoria | Tipo | U:\n") + format_table(TABLA_CATEGORIA)
     salida += "\n\n" + arrow(f"Categoria ingresada: {categoria} | Factor U tomado: {u}\n")
-    salida += dim("La formula manual de los articulos no visibles en el PDF fuente queda pendiente de extraccion exacta.\n")
+    salida += dim("Tabla N° 6: C=1+7.5(T/Tp), C=2.5, C=2.5(Tp/T), C=2.5(Tp*Tl/T^2), según el tramo de T.\n")
     return salida
 
 

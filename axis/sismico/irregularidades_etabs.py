@@ -37,6 +37,19 @@ def _buscar_columna(df: pd.DataFrame, *patrones: str) -> Optional[str]:
     return None
 
 
+def _buscar_columna_exacta(df: pd.DataFrame, nombre: str) -> Optional[str]:
+    """Busca columna cuyo nombre (sin espacios) coincida exactamente.
+
+    Evita confundir columnas como 'StiffXh' (vacía en ETABS recientes)
+    con 'StiffX', que es la que tiene los datos.
+    """
+    objetivo = nombre.replace(" ", "").lower()
+    for c in df.columns:
+        if str(c).replace(" ", "").lower() == objetivo:
+            return c
+    return None
+
+
 def obtener_alturas_entrepiso(log: bool = True) -> Optional[dict[str, float]]:
     """
     Obtiene alturas de entrepiso desde Story Definitions.
@@ -120,7 +133,9 @@ def obtener_rigidez_cortante_etabs(
             if log:
                 print(f"⚠ Story Stiffness: filtro OutputCase={output_case} sin filas, usando primera fila por story.")
 
-    col_k_final = _buscar_columna(df, "stiff", sent)
+    col_k_final = _buscar_columna_exacta(df, f"stiff{sent}")
+    if col_k_final is None:
+        col_k_final = _buscar_columna(df, "stiff", sent)
     if col_k_final is None:
         col_k_final = next((c for c in df.columns if "stiff" in c.lower()), None)
     if col_k_final is None or col_k_final not in df.columns:
@@ -128,7 +143,9 @@ def obtener_rigidez_cortante_etabs(
             print(f"⚠ Story Stiffness sin columna Stiff X/Y.")
         return _obtener_cortante_desde_story_forces(sentido, log)
 
-    col_v_final = _buscar_columna(df, "shear", sent)
+    col_v_final = _buscar_columna_exacta(df, f"shear{sent}")
+    if col_v_final is None:
+        col_v_final = _buscar_columna(df, "shear", sent)
     if col_v_final is None:
         for c in ("shear", "shearx", "sheary", "force", "vx", "vy"):
             if c in df.columns:
@@ -138,6 +155,11 @@ def obtener_rigidez_cortante_etabs(
     df[col_k_final] = pd.to_numeric(df[col_k_final], errors="coerce")
     df = df.dropna(subset=[col_k_final])
     df = df[df[col_story].astype(str).str.lower().str.strip() != "base"]
+
+    if df.empty:
+        if log:
+            print(f"⚠ Story Stiffness: la columna '{col_k_final}' no tiene valores numericos validos.")
+        return _obtener_cortante_desde_story_forces(sentido, log)
 
     stories = df[col_story].astype(str).tolist()
     ks = [float(x) for x in df[col_k_final].tolist()]

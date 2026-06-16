@@ -43,12 +43,12 @@ def _calcular_cortante_losa(
     }
 
 
-def _calcular_cortante(
+def _evaluar_cortante(
     nombre: str, fc: float, fy: float, b: float, h: float, rec: float, vu_tn: float
-) -> dict:
+) -> tuple[dict, dict]:
     """
     Diseño por cortante E-060. Vu en Tn (se convierte a kg).
-    Retorna: d, Vu, Vc, Vs_max, Vn_max, Vs, cumple_Vs_max, Av_s, s_max, Av_s_min, Error.
+    Retorna (resultado resumido, detalle para salida paso a paso).
     """
     vu_kg = vu_tn * 1000
     if fc <= 0 or fy <= 0 or b <= 0 or h <= 0 or rec <= 0 or vu_tn < 0:
@@ -57,32 +57,36 @@ def _calcular_cortante(
         raise InvalidInput("El recubrimiento debe ser menor que la altura total")
 
     d = h - rec
+    sqrt_fc = fc**0.5
     vc_kg = vc(fc, b, d)
     vs_max_kg = vs_max(fc, b, d)
     vn_max_kg = vn_max(vc_kg, vs_max_kg)
-
     umbral_sin_refuerzo = (vc_kg / 2) * PHI_CORTANTE
     umbral_maximo = PHI_CORTANTE * vn_max_kg
 
     if vu_kg <= umbral_sin_refuerzo:
+        caso = "sin_refuerzo"
         av_s_req = 0.0
         vs_kg = 0.0
         error_msg = None
     elif vu_kg <= umbral_maximo:
-        vs_kg = vs_requerido(vu_kg, vc_kg)
-        vs_kg = max(0.0, vs_kg)
+        caso = "con_refuerzo"
+        vs_kg = max(0.0, vs_requerido(vu_kg, vc_kg))
         av_s_req = av_s_requerido(vs_kg, fy, d)
         error_msg = None
     else:
+        caso = "insuficiente"
         vs_kg = vs_requerido(vu_kg, vc_kg)
         av_s_req = None
         error_msg = "Vu > phi*Vn_max: aumentar peralte o fc"
 
     s_max_base_cm = s_max_base(d)
+    vs_umbral_s = 1.1 * sqrt_fc * b * d
     s_max_cm = s_max_reducido(s_max_base_cm, vs_kg, fc, b, d)
-    av_s_min_ratio = av_s_min(fc, b, fy)
+    av_s_min1 = 0.2 * sqrt_fc * b / fy
+    av_s_min2 = 3.5 * b / fy
+    av_s_min_ratio = max(av_s_min1, av_s_min2)
 
-    # As/s req. = max(Av_s calculado, Av_s_min)
     if av_s_req is not None and av_s_req > 0:
         as_s_req = max(av_s_req, av_s_min_ratio)
     elif av_s_req is not None:
@@ -90,8 +94,7 @@ def _calcular_cortante(
     else:
         as_s_req = None
 
-    # Fuerzas en Tn; orden: flujo de diseño.
-    return {
+    resultado = {
         "nombre": nombre,
         "Vu": round(vu_tn, 2),
         "Vc": round(vc_kg / 1000, 2),
@@ -102,6 +105,39 @@ def _calcular_cortante(
         "As/s req.": round(as_s_req, 4) if as_s_req is not None else None,
         "s_max": round(s_max_cm, 2),
     }
+    if error_msg:
+        resultado["Error"] = error_msg
+
+    detalle = {
+        "d": d,
+        "sqrt_fc": sqrt_fc,
+        "vu_kg": vu_kg,
+        "vc_kg": vc_kg,
+        "vs_max_kg": vs_max_kg,
+        "vn_max_kg": vn_max_kg,
+        "umbral_sin_refuerzo_kg": umbral_sin_refuerzo,
+        "umbral_maximo_kg": umbral_maximo,
+        "vs_kg": vs_kg,
+        "av_s_calc": av_s_req,
+        "av_s_min1": av_s_min1,
+        "av_s_min2": av_s_min2,
+        "av_s_min": av_s_min_ratio,
+        "as_s_req": as_s_req,
+        "s_max_base": s_max_base_cm,
+        "s_max": s_max_cm,
+        "vs_umbral_s": vs_umbral_s,
+        "caso": caso,
+        "error_msg": error_msg,
+    }
+    return resultado, detalle
+
+
+def _calcular_cortante(
+    nombre: str, fc: float, fy: float, b: float, h: float, rec: float, vu_tn: float
+) -> dict:
+    """Diseño por cortante E-060 (solo resultado resumido)."""
+    resultado, _ = _evaluar_cortante(nombre, fc, fy, b, h, rec, vu_tn)
+    return resultado
 
 
 @register("cortante", "viga")
@@ -128,6 +164,33 @@ def cortante_viga(data: dict) -> dict:
         resultados.append(res)
 
     return {"resultados": resultados}
+
+
+REC_CORTANTE_DEFAULT_CM = 4.0
+
+
+@register("cortante", "calc")
+def cortante_calc(data: dict) -> dict:
+    """
+    Diseño a cortante directo (vigas y columnas, mismo procedimiento E-060).
+    Data: Vu (Tn), b, h, fc, fy (kg/cm²), rec (cm, opcional, default 4).
+    """
+    fc = to_float(data.get("fc"))
+    fy = to_float(data.get("fy"))
+    b = to_float(data.get("b"))
+    h = to_float(data.get("h"))
+    rec = to_float(data.get("rec"), default=REC_CORTANTE_DEFAULT_CM)
+    vu = to_float(data.get("Vu"), default=0.0)
+    nombre = (data.get("nombre") or "Sección").strip() or "Sección"
+    res, detalle = _evaluar_cortante(nombre, fc, fy, b, h, rec, vu)
+    res["d"] = round(h - rec, 2)
+    return {
+        "entrada": {
+            "nombre": nombre, "Vu": vu, "b": b, "h": h, "fc": fc, "fy": fy, "rec": rec, "d": res["d"],
+        },
+        "resultado": res,
+        "detalle": detalle,
+    }
 
 
 @register("cortante", "losa")

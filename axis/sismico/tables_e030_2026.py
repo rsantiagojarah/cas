@@ -15,7 +15,8 @@ FACTOR_ZONA: dict[int, float] = {
     1: 0.10,
 }
 
-# Tabla 4 – Factor de suelo S. None = la norma resumida exige estudio/validación específica.
+# Tabla 4 – Factor de suelo S. En S2/S3 se almacena el mayor valor del intervalo,
+# que es el valor normativo por defecto cuando no se dispone de Vs30.
 FACTOR_SUELO_S: dict[int, dict[str, Optional[float]]] = {
     4: {"s0": 0.80, "s1": 1.00, "s2": 1.10, "s3": 1.20, "s4": None},
     3: {"s0": 0.80, "s1": 1.00, "s2": 1.15, "s3": 1.20, "s4": 1.30},
@@ -26,10 +27,10 @@ FACTOR_SUELO_S: dict[int, dict[str, Optional[float]]] = {
 # Tabla 5 – Períodos Tp (s) y Tl (s) por perfil.
 PERIODOS_TP_TL: dict[str, dict[str, Optional[float]]] = {
     "s0": {"tp": 0.30, "tl": 3.0},
-    "s1": {"tp": 0.40, "tl": 3.0},
-    "s2": {"tp": None, "tl": 3.0},
-    "s3": {"tp": None, "tl": 2.5},
-    "s4": {"tp": 1.20, "tl": 2.0},
+    "s1": {"tp": 0.40, "tl": 2.5},
+    "s2": {"tp": None, "tl": None},
+    "s3": {"tp": None, "tl": None},
+    "s4": {"tp": 1.20, "tl": 1.6},
     "s5": {"tp": None, "tl": None},
 }
 
@@ -73,27 +74,27 @@ TABLA_PERFIL_DESC = [
 ]
 
 TABLA_FACTOR_SUELO_S = [
-    {"Zona / Suelo": "Z4", "S0": 0.80, "S1": 1.00, "S2": 1.10, "S3": 1.20, "S4": "Resp. sitio"},
-    {"Zona / Suelo": "Z3", "S0": 0.80, "S1": 1.00, "S2": 1.15, "S3": 1.20, "S4": 1.30},
-    {"Zona / Suelo": "Z2", "S0": 0.80, "S1": 1.00, "S2": 1.30, "S3": 1.40, "S4": 1.70},
-    {"Zona / Suelo": "Z1", "S0": 0.80, "S1": 1.00, "S2": 1.30, "S3": 1.60, "S4": 2.40},
+    {"Zona / Suelo": "Z4", "S0": 0.80, "S1": 1.00, "S2": "1.00-1.10*", "S3": "1.10-1.20*", "S4": "Resp. sitio"},
+    {"Zona / Suelo": "Z3", "S0": 0.80, "S1": 1.00, "S2": "1.00-1.15*", "S3": "1.15-1.20*", "S4": 1.30},
+    {"Zona / Suelo": "Z2", "S0": 0.80, "S1": 1.00, "S2": "1.00-1.30*", "S3": "1.30-1.40*", "S4": 1.70},
+    {"Zona / Suelo": "Z1", "S0": 0.80, "S1": 1.00, "S2": "1.00-1.30*", "S3": "1.30-1.60*", "S4": 2.40},
 ]
 
 TABLA_PERIODOS_TP_TL = [
     {"Perfil de suelo": "S0", "Tp (s)": 0.30, "Tl (s)": 3.0},
-    {"Perfil de suelo": "S1", "Tp (s)": 0.40, "Tl (s)": 3.0},
-    {"Perfil de suelo": "S2", "Tp (s)": "0.40-0.60*", "Tl (s)": 3.0},
-    {"Perfil de suelo": "S3", "Tp (s)": "0.60-0.90*", "Tl (s)": 2.5},
-    {"Perfil de suelo": "S4", "Tp (s)": 1.20, "Tl (s)": 2.0},
+    {"Perfil de suelo": "S1", "Tp (s)": 0.40, "Tl (s)": 2.5},
+    {"Perfil de suelo": "S2", "Tp (s)": "0.40-0.60*", "Tl (s)": "2.5-2.0*"},
+    {"Perfil de suelo": "S3", "Tp (s)": "0.60-0.90*", "Tl (s)": "2.0-1.6*"},
+    {"Perfil de suelo": "S4", "Tp (s)": 1.20, "Tl (s)": 1.6},
     {"Perfil de suelo": "S5", "Tp (s)": "Especial", "Tl (s)": "Especial"},
 ]
 
 TABLA_PERFIL_STPTL = [
     {"Perfil": "S0", "Factor de Suelo (S)": "por zona", "Tp (s)": 0.30, "Tl (s)": 3.0},
-    {"Perfil": "S1", "Factor de Suelo (S)": "por zona", "Tp (s)": 0.40, "Tl (s)": 3.0},
-    {"Perfil": "S2", "Factor de Suelo (S)": "por zona", "Tp (s)": "0.40-0.60*", "Tl (s)": 3.0},
-    {"Perfil": "S3", "Factor de Suelo (S)": "por zona", "Tp (s)": "0.60-0.90*", "Tl (s)": 2.5},
-    {"Perfil": "S4", "Factor de Suelo (S)": "por zona / estudio", "Tp (s)": 1.20, "Tl (s)": 2.0},
+    {"Perfil": "S1", "Factor de Suelo (S)": "por zona", "Tp (s)": 0.40, "Tl (s)": 2.5},
+    {"Perfil": "S2", "Factor de Suelo (S)": "intervalo por zona*", "Tp (s)": "0.40-0.60*", "Tl (s)": "2.5-2.0*"},
+    {"Perfil": "S3", "Factor de Suelo (S)": "intervalo por zona*", "Tp (s)": "0.60-0.90*", "Tl (s)": "2.0-1.6*"},
+    {"Perfil": "S4", "Factor de Suelo (S)": "por zona / estudio", "Tp (s)": 1.20, "Tl (s)": 1.6},
     {"Perfil": "S5", "Factor de Suelo (S)": "Estudio especial", "Tp (s)": "-", "Tl (s)": "-"},
 ]
 
@@ -158,20 +159,31 @@ def _interpolar(valor: float, x0: float, x1: float, y0: float, y1: float) -> flo
     return y0 + (valor - x0) * (y1 - y0) / (x1 - x0)
 
 
-def _obtener_tp(perfil: str, vs: Optional[float]) -> tuple[Optional[float], list[str]]:
+def _obtener_parametros_interpolados(
+    perfil: str,
+    zona: int,
+    vs: Optional[float],
+) -> tuple[Optional[float], Optional[float], Optional[float], list[str]]:
     advertencias: list[str] = []
     if perfil == "s2":
         if vs is None:
-            advertencias.append("Perfil S2 sin Vs: se adopta Tp=0.60 por defecto normativo resumido.")
-            return 0.60, advertencias
-        return _interpolar(vs, 550.0, 350.0, 0.40, 0.60), advertencias
+            advertencias.append("Perfil S2 sin Vs30: se adopta S mayor del intervalo, Tp=0.60 y Tl=2.00.")
+            return FACTOR_SUELO_S[zona]["s2"], 0.60, 2.00, advertencias
+        s_val = _interpolar(vs, 550.0, 350.0, 1.00, float(FACTOR_SUELO_S[zona]["s2"]))
+        tp = _interpolar(vs, 550.0, 350.0, 0.40, 0.60)
+        tl = _interpolar(vs, 550.0, 350.0, 2.50, 2.00)
+        return s_val, tp, tl, advertencias
     if perfil == "s3":
         if vs is None:
-            advertencias.append("Perfil S3 sin Vs: se adopta Tp=0.90 por defecto normativo resumido.")
-            return 0.90, advertencias
-        return _interpolar(vs, 350.0, 200.0, 0.60, 0.90), advertencias
+            advertencias.append("Perfil S3 sin Vs30: se adopta S mayor del intervalo, Tp=0.90 y Tl=1.60.")
+            return FACTOR_SUELO_S[zona]["s3"], 0.90, 1.60, advertencias
+        s_bajo = 1.10 if zona == 4 else float(FACTOR_SUELO_S[zona]["s2"])
+        s_val = _interpolar(vs, 350.0, 200.0, s_bajo, float(FACTOR_SUELO_S[zona]["s3"]))
+        tp = _interpolar(vs, 350.0, 200.0, 0.60, 0.90)
+        tl = _interpolar(vs, 350.0, 200.0, 2.00, 1.60)
+        return s_val, tp, tl, advertencias
     valores = PERIODOS_TP_TL[perfil]
-    return valores["tp"], advertencias
+    return FACTOR_SUELO_S[zona].get(perfil), valores["tp"], valores["tl"], advertencias
 
 
 def obtener_parametros_sitio(
@@ -183,7 +195,7 @@ def obtener_parametros_sitio(
     Retorna S, Tp, Tl y metadatos normativos.
     - S5 requiere estudio especial.
     - Z4 + S4 requiere análisis de respuesta de sitio.
-    - S2 y S3 interpolan Tp si se dispone de Vs.
+    - S2 y S3 interpolan S, Tp y Tl si se dispone de Vs30.
     """
     clave = perfil.strip().lower()
     if clave not in PERIODOS_TP_TL:
@@ -201,10 +213,8 @@ def obtener_parametros_sitio(
         advertencias.append("Perfil S5 requiere tratamiento especial; no se puede cerrar el cálculo con la información actual.")
         return {"s": None, "tp": None, "tl": None, "advertencias": advertencias, "requiere_estudio": True, "estado": estado}
 
-    tp, advert_tp = _obtener_tp(clave, vs)
-    advertencias.extend(advert_tp)
-    tl = PERIODOS_TP_TL[clave]["tl"]
-    s_val = FACTOR_SUELO_S[zona].get(clave)
+    s_val, tp, tl, advert_interp = _obtener_parametros_interpolados(clave, zona, vs)
+    advertencias.extend(advert_interp)
 
     if clave == "s4" and zona == 4:
         requiere_estudio = True

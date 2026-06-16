@@ -47,7 +47,12 @@ HELP_MAP = {
         "  Igual que momento: solo Vu (V1,V2...), estructura T×S×M, o nombre+Vu. Delete por fila (cas cortante viga) o viga+nombre."
     ),
     "results": "cas results flexion [viga|losa] | cas results cortante\n  Ver resultados en tabla.",
-    "cortante": "cas cortante viga [viga|i] | cas cortante losa\n  Cortante vigas (estribos; opcional filtrar) o losas (Vu vs phi*Vc).",
+    "cortante": (
+        "cas cortante calc <Vu> <b> <h> <fc> <fy> [rec]\n"
+        "  Diseño a cortante directo (vigas y columnas, E.060; rec default 4 cm).\n"
+        "cas cortante viga [viga|i] | cas cortante losa\n"
+        "  Cortante por proyecto: vigas (estribos) o losas (Vu vs phi*Vc)."
+    ),
     "lambda": (
         "Factor λΔ deflexión diferida (E.060): λΔ = ξ/(1+50·ρ'), ρ'=As'/(b·d).\n"
         "  cas lambda <b> <d> <As'> <xi>  Cálculo directo (b,d cm; As' cm²).\n"
@@ -124,12 +129,25 @@ HELP_MAP = {
     ),
     "columna": (
         "DISEÑO DE COLUMNAS DE CONCRETO ARMADO (E.060)\n"
-        "  Solo se usan esfuerzos con Station 0.\n"
+        "  Flujo recomendado: preparar datos -> definir propiedades -> asignar diagramas -> diseñar -> revisar resumen.\n"
+        "  Nota: la verificacion P-M usa Station 0; la esbeltez usa las stations extremas importadas.\n"
         "\n"
-        "DATOS DE ENTRADA:\n"
+        "ATAJOS PRINCIPALES:\n"
+        "cas columna etabs-import [R_X] [R_Y]\n"
+        "  Importa desde ETABS: Element Forces - Columns, Story Forces, Story Drifts, Story Definitions y R.\n"
+        "cas columna diseno\n"
+        "  Ejecuta el procedimiento completo con datos ya preparados.\n"
+        "cas columna etabs-diseno [R_X] [R_Y] [diagrama_default]\n"
+        "  Importa desde ETABS, asigna diagramas faltantes si puede y diseña en un solo comando.\n"
+        "\n"
+        "FASE 0 - PREPARACION DE DATOS:\n"
         "cas columna props <Unique_Name> <k> <lu> <Ix> <Iy> <Ag> <Bd> [fc] [fy]\n"
         "  Ec = 15000*sqrt(fc) (E.060). fc por defecto 210. Una inercia: <UN> <k> <lu> <I> <Ag> <Bd> [fc] [fy].\n"
         "cas columna props-list              Listar propiedades.\n"
+        "cas columna props-bulk <UN1> <UN2> ... <k> <lu> <Ix> <Iy> <Ag> <Bd> [fc] [fy]\n"
+        "  Un comando por grupo de columnas con las mismas props (repita si hay otro grupo).\n"
+        "  Ej: props-bulk 1 20 30 -- 1.0 300 ...  y luego  props-bulk 5 4 8 -- 1.2 280 ...\n"
+        "  (Opcional: --todas / --faltantes = misma props sin listar nombres; ver help columna)\n"
         "cas columna props-remove <UN>       Borrar propiedades de una columna.\n"
         "cas columna esfuerzos <Story> <UN> <Station> <OC> <ST> <P> <M2> <M3>\n"
         "  Agregar esfuerzo (P:Tn, M2/M3:Tn-m, ST:Max/Min o '-').\n"
@@ -149,34 +167,32 @@ HELP_MAP = {
         "cas diagrama check-pm <muro> <Story> <Combinacion>\n"
         "  Verificacion P-M de una combinacion: P, M2, M3, theta, Mu_equiv, Cap, Ratio.\n"
         "cas columna asignar <UN> <Nominal> [Ultimo]\n"
-        "  Asignar diagramas a columna.\n"
+        "  Asignar diagramas a una columna.\n"
+        "cas columna asignar-bulk <UN1> <UN2> ... <Nominal> [Ultimo]\n"
+        "  Mismo diagrama a varias columnas (separar UN con espacios; '12,24,16' tambien vale).\n"
+        "  Opcional: ... -- <Nominal> [Ultimo]  |  --todas / --faltantes <Nom> [Ult]\n"
         "cas columna diagrama [nombre_seccion]\n"
-        "  Superficie de interaccion 3D con todos los puntos de esfuerzos finales (Station 0).\n"
+        "  Abre grafico 3D (sin texto en consola). Tooltip: Pu, Mu, Ratio. ESC oculta datos.\n"
+        "  columna diagrama --diag [nombre]  Muestra resumen P-M en consola antes del grafico.\n"
         "\n"
-        "PASOS DE ANALISIS (DETALLADOS):\n"
-        "cas columna q                 Paso 1: Indice de estabilidad Q\n"
+        "FASE 1 - ESTABILIDAD GLOBAL:\n"
+        "cas columna q                 Paso 1: Indice Q por piso y direccion\n"
+        "\n"
+        "FASE 2 - ESBELTEZ Y SEGUNDO ORDEN:\n"
         "cas columna esbeltez          Paso 2: Momentos extremos M1/M2\n"
-        "cas columna segundo-orden     Paso 3: Efectos de segundo orden\n"
+        "cas columna segundo-orden     Paso 3: Decide si se ignora segundo orden\n"
         "cas columna cm                Paso 4: Factor Cm\n"
-        "cas columna delta             Paso 5: Factor de amplificacion delta\n"
+        "cas columna delta             Paso 5: Amplificacion delta\n"
+        "\n"
+        "FASE 3 - DEMANDAS AMPLIFICADAS:\n"
         "cas columna esfuerzos-fin     Paso 6: Esfuerzos finales amplificados\n"
+        "\n"
+        "FASE 4 - CAPACIDAD Y VERIFICACION:\n"
         "cas columna mn                Paso 7: Momentos nominales Mn2/Mn3\n"
         "cas columna estados           Paso 8: Estados sismicos combinados\n"
         "cas columna verificacion      Paso 9: Verificacion P-M\n"
         "cas columna resumen           Resumen de verificacion P-M\n"
-        "\n"
-        "DISEÑO COMPLETO EN UN SOLO COMANDO:\n"
-        "cas columna diseno\n"
-        "  Ejecuta internamente los pasos q, esbeltez, segundo-orden, cm, delta,\n"
-        "  esfuerzos-fin, mn, estados, verificacion y resumen (mostrando todas\n"
-        "  las tablas de cada paso en la consola).\n"
-        "\n"
-        "IMPORTAR DESDE ETABS:\n"
-        "cas columna etabs-import [R_X] [R_Y]\n"
-        "  Importa: Element Forces - Columns, Story Forces, Story Drifts,\n"
-        "  Story Definitions y factor R. ETABS debe estar abierto con modelo cargado.\n"
-        "cas columna etabs-diseno [R_X] [R_Y]\n"
-        "  Atajo: importa desde ETABS y luego ejecuta 'cas columna diseno' en un paso."
+        "cas columna report [nombre]   Reporte consolidado MD/Word + diagramas P-M con esfuerzos\n"
     ),
     "clear": "clear | cls\n  Limpiar la pantalla del REPL (solo en modo interactivo).",
 }
@@ -219,7 +235,8 @@ HELP_LINES = [
     "  viga list | delete <nombre|i>  Listar o borrar vigas",
     "  viga momento add [nombre_viga|índice] <nombre> <Mu>  Momentos | list | delete <i>",
     "  viga cortante add [viga|i] <nombre> <Vu>  |  Vu1 Vu2...  |  T S M Vu...  |  list | delete <nº fila>|<viga> <nombre>",
-    "  cortante viga [viga|i] | cortante losa  Diseño por cortante (vigas o losas; filtro opcional)",
+    "  cortante calc <Vu> <b> <h> <fc> <fy> [rec]  Cortante directo vigas/columnas (E.060)",
+    "  cortante viga [viga|i] | cortante losa  Diseño por cortante en proyecto (filtro opcional)",
     "  inercia define <nombre> <caso> b h d d' fc  Elemento Ie E.060",
     "  inercia seccion add <elem> <seccion> As As' Ma  (b,h,d,d',fc del elemento)",
     "  inercia calcular [nombre]  Ie por sección e Ie promedio",
@@ -294,35 +311,18 @@ HELP_LINES = [
     "  espectro Z U S Tp Tl Ia Ip R                   Espectro ETABS 2026 (Sa = Z*U*S*C/R)",
     "",
     "Diseno de Columnas (E.060):",
+    "  Flujo: etabs-import -> props/diagramas -> diseno -> resumen",
+    "  columna etabs-import [R_X R_Y]  Importar esfuerzos, Story Forces, drifts, alturas y R",
     "  columna props <UN> <k> <lu> <Ix> <Iy> <Ag> <Bd> [fc] [fy]",
-    "                                  Propiedades (Ec=15000*sqrt(fc), fc def. 210)",
-    "  columna props-list              Listar propiedades",
-    "  columna props-remove <UN>       Borrar propiedades de columna",
-    "  columna esfuerzos <Story> <UN> <Station> <OC> <ST> <P> <M2> <M3>",
-    "                                  Agregar esfuerzo de elemento",
-    "  columna esfuerzos-list [UN]     Listar esfuerzos",
-    "  columna story-forces <Story> <OC> <P> <VX> <VY>",
-    "                                  Story forces",
-    "  columna drifts <Story> <OC> <Drift>",
-    "                                  Story drifts",
-    "  columna alturas <Story> <Height>",
-    "                                  Alturas de entrepiso",
-    "  columna factor-r <R_X> <R_Y>   Factor R",
-    "  columna asignar <UN> <Nom> [Ult] Asignar diagramas a columna",
-    "  columna diagrama [seccion]       Superficie P-M2-M3 + todos esfuerzos finales",
-    "  columna q                       Paso 1: Indice Q",
-    "  columna esbeltez                Paso 2: Momentos extremos",
-    "  columna segundo-orden           Paso 3: Segundo orden",
-    "  columna cm                      Paso 4: Factor Cm",
-    "  columna delta                   Paso 5: Factor delta",
-    "  columna esfuerzos-fin           Paso 6: Esfuerzos finales",
-    "  columna mn                      Paso 7: Momentos nominales",
-    "  columna estados                 Paso 8: Estados sismicos",
-    "  columna verificacion            Paso 9: Verificacion P-M",
-    "  columna resumen                 Resumen P-M",
-    "  columna diseno                  Ejecutar todos los pasos de diseño (todas las tablas)",
-    "  columna etabs-import [R_X R_Y]  Importar desde ETABS",
+    "  columna props-bulk <UN...> <k> <lu> ... | --todas | --faltantes",
+    "                                  Mismas props para varias columnas",
+    "  columna asignar <UN> <Nom> [Ult]       Asignar diagramas P-M a una columna",
+    "  columna asignar-bulk <UN...> <Nom> [Ult] | --todas | --faltantes",
+    "                                  Mismo diagrama a varias columnas",
+    "  columna diseno                  Ejecutar el procedimiento completo E.060",
     "  columna etabs-diseno [R_X R_Y]  Importar desde ETABS + diseno completo",
+    "  columna report [nombre]         Reporte MD/Word (diseno + superficies P-M con esfuerzos)",
+    "  Detalle por fases: columna q | esbeltez | segundo-orden | cm | delta | esfuerzos-fin | mn | estados | verificacion | resumen",
     "",
     "REPL: clear, cls            Limpiar pantalla",
     "",

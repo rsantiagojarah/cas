@@ -25,15 +25,16 @@ from axis.cli.sismo_handlers_2026 import (
 class SismoE030ActualizacionTests(unittest.TestCase):
     def test_parametros_sitio_s2_interpola_tp_con_vs(self) -> None:
         params = obtener_parametros_sitio("s2", 3, vs=450.0)
-        self.assertAlmostEqual(params["s"], 1.15)
+        self.assertAlmostEqual(params["s"], 1.075)
         self.assertAlmostEqual(params["tp"], 0.5)
-        self.assertEqual(params["tl"], 3.0)
+        self.assertEqual(params["tl"], 2.25)
         self.assertFalse(params["requiere_estudio"])
 
     def test_parametros_sitio_s3_sin_vs_usa_default(self) -> None:
         params = obtener_parametros_sitio("s3", 2)
         self.assertAlmostEqual(params["s"], 1.40)
         self.assertAlmostEqual(params["tp"], 0.9)
+        self.assertAlmostEqual(params["tl"], 1.6)
         self.assertIn("Tp=0.90", " ".join(params["advertencias"]))
 
     def test_parametros_sitio_z4_s4_requiere_respuesta_sitio(self) -> None:

@@ -1,16 +1,24 @@
 """
 Análisis de columnas de concreto armado según E.060.
 
-Pasos del diseño:
-1. Índice de estabilidad Q
-2. Momentos extremos (esbeltez)
-3. Evaluación de segundo orden
-4. Factor Cm
-5. Factor delta (amplificación)
-6. Esfuerzos finales amplificados
-7. Momentos nominales (Mn2, Mn3)
-8. Estados sísmicos combinados
-9. Verificación P-M (flexocompresión)
+Procedimiento de diseño:
+
+Fase 1 - Estabilidad global:
+1. Índice de estabilidad Q por piso y dirección.
+
+Fase 2 - Esbeltez y segundo orden:
+2. Momentos extremos M1/M2.
+3. Evaluación de segundo orden.
+4. Factor Cm.
+5. Factor delta de amplificación.
+
+Fase 3 - Demanda amplificada:
+6. Esfuerzos finales amplificados.
+
+Fase 4 - Capacidad y verificación:
+7. Momentos nominales Mn2/Mn3.
+8. Estados sísmicos combinados.
+9. Verificación P-M por flexocompresión.
 """
 
 from __future__ import annotations
@@ -585,7 +593,18 @@ class InteractionSurface:
         self.points = points
         self._angles = sorted({float(p["angle"]) for p in points})
 
-    def get_moment_nominal(self, pu: float, angle: float = 0.0) -> float:
+    def p_bounds(self) -> tuple[float, float]:
+        """Rango de P (Tn) cubierto por los puntos del diagrama."""
+        if not self.points:
+            return (0.0, 0.0)
+        ps = [float(p["p"]) for p in self.points]
+        return min(ps), max(ps)
+
+    def pu_en_rango(self, pu: float, tol: float = 1e-4) -> bool:
+        p_min, p_max = self.p_bounds()
+        return (p_min - tol) <= pu <= (p_max + tol)
+
+    def get_moment_nominal(self, pu: float, angle: float = 0.0, *, clamp_p: bool = True) -> float:
         angle = angle % 360.0
         # Si el diagrama solo tiene curvas en [0, 180°], mapear ángulo por simetría
         if self._angles and max(self._angles) <= 180.0 + 1e-6:
@@ -593,11 +612,11 @@ class InteractionSurface:
         neighbors = self._find_neighbors(angle)
 
         if len(neighbors) == 1:
-            return self._interp_p(pu, neighbors[0])
+            return self._interp_p(pu, neighbors[0], clamp_p=clamp_p)
 
         a1, a2 = neighbors
-        mn1 = self._interp_p(pu, a1)
-        mn2 = self._interp_p(pu, a2)
+        mn1 = self._interp_p(pu, a1, clamp_p=clamp_p)
+        mn2 = self._interp_p(pu, a2, clamp_p=clamp_p)
         if a2 == a1:
             return mn1
         factor = (angle - a1) / (a2 - a1)
@@ -616,7 +635,7 @@ class InteractionSurface:
             return [max(self._angles)]
         return [max(smaller), min(larger)]
 
-    def _interp_p(self, pu: float, angle: float) -> float:
+    def _interp_p(self, pu: float, angle: float, *, clamp_p: bool = True) -> float:
         pts = sorted(
             [p for p in self.points if float(p["angle"]) == angle],
             key=lambda x: float(x["p"]),
@@ -626,6 +645,8 @@ class InteractionSurface:
 
         p_min = float(pts[0]["p"])
         p_max = float(pts[-1]["p"])
+        if not clamp_p and (pu < p_min or pu > p_max):
+            raise ValueError(f"P={pu} fuera de rango del diagrama [{p_min}, {p_max}]")
         if pu < p_min:
             pu = p_min
         elif pu > p_max:
@@ -879,8 +900,16 @@ def compute_pm_verification(
                     angle = 0.0 if m2 >= 0 else 180.0
                     mu_equiv = abs(m2)
 
-                cap = surface_ult.get_moment_nominal(pu, angle)
+                p_en_rango = surface_ult.pu_en_rango(pu)
+                p_min, p_max = surface_ult.p_bounds()
+                if p_en_rango:
+                    cap = surface_ult.get_moment_nominal(pu, angle)
+                else:
+                    pu_ref = max(p_min, min(p_max, pu))
+                    cap = surface_ult.get_moment_nominal(pu_ref, angle)
                 ratio = mu_equiv / cap if cap > 0 else float("inf")
+                if not p_en_rango:
+                    ratio = float("inf")
 
                 results.append({
                     "Story": story,
@@ -891,13 +920,23 @@ def compute_pm_verification(
                     "M3": round(m3, 4) if m3 is not None else 0.0,
                     "Mu_Equiv": round(mu_equiv, 4),
                     "Cap_Ultima": round(cap, 4),
-                    "Ratio": round(ratio, 4),
-                    "Cumple": "Si" if ratio <= 1.0 else "No",
+                    "Ratio": round(ratio, 4) if ratio != float("inf") else "inf",
+                    "P_En_Rango": "Si" if p_en_rango else "No",
+                    "Cumple": "Si" if p_en_rango and ratio <= 1.0 else "No",
                 })
             except Exception:
                 continue
 
     return results
+
+
+def _ratio_float(val) -> float:
+    if val in ("inf", "Inf", "INF"):
+        return float("inf")
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def compute_pm_summary(verificacion: list[dict]) -> list[dict]:
@@ -909,14 +948,15 @@ def compute_pm_summary(verificacion: list[dict]) -> list[dict]:
 
     summary = []
     for (story, un), rows in groups.items():
-        ratios = [float(r.get("Ratio", 0)) for r in rows]
-        max_ratio = max(ratios) if ratios else 0
+        ratios = [_ratio_float(r.get("Ratio", 0)) for r in rows]
+        max_ratio = max(ratios) if ratios else 0.0
+        ratio_out = "inf" if max_ratio == float("inf") else round(max_ratio, 4)
         summary.append({
             "Story": story,
             "Unique_Name": un,
-            "Ratio_Max": round(max_ratio, 4),
+            "Ratio_Max": ratio_out,
             "Cumple": "Si" if max_ratio <= 1.0 else "No",
         })
 
-    summary.sort(key=lambda x: -x["Ratio_Max"])
+    summary.sort(key=lambda x: -_ratio_float(x["Ratio_Max"]))
     return summary

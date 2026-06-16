@@ -17,6 +17,7 @@ from axis.cli.tables import format_table, CORTANTE_HEADER_MAP
 from axis.cli.handlers import get_base_path
 from axis.cli.handlers_vigas import ensure_vu_column
 from axis.operations import flexion, cortante  # noqa: F401
+from axis.operations.cortante_calculos import PHI_CORTANTE
 
 
 def _nombres_momentos_estructurados(tramos: int, secciones: int, momentos_por_seccion: int) -> list[str]:
@@ -862,6 +863,171 @@ def handle_results_flexion(args: list[str]) -> str:
         row["N"] = str(i + 1)
     cols = ["N"] + [k for k in rows[0].keys() if k != "N"]
     return f"{titulo}\n\n" + format_table(rows, columns=cols)
+
+
+def _tn(kg: float) -> float:
+    return kg / 1000.0
+
+
+def _format_cortante_calc_pasos(entrada: dict, detalle: dict, resultado: dict) -> str:
+    """Salida paso a paso para cas cortante calc (sin tablas)."""
+    vu = entrada["Vu"]
+    b, h, fc, fy, rec = entrada["b"], entrada["h"], entrada["fc"], entrada["fy"], entrada["rec"]
+    d = detalle["d"]
+    sqrt_fc = detalle["sqrt_fc"]
+    phi = PHI_CORTANTE
+    vc_kg = detalle["vc_kg"]
+    vs_max_kg = detalle["vs_max_kg"]
+    vn_max_kg = detalle["vn_max_kg"]
+    vu_kg = detalle["vu_kg"]
+    lim_inf = detalle["umbral_sin_refuerzo_kg"]
+    lim_sup = detalle["umbral_maximo_kg"]
+    caso = detalle["caso"]
+
+    lines = [
+        "=" * 60,
+        "  DISENO A CORTANTE (E.060) - VIGAS Y COLUMNAS",
+        "=" * 60,
+        "",
+        "  1. DATOS DE ENTRADA",
+        f"     Vu = {vu:.2f} Tn  ({vu_kg:.0f} kg)",
+        f"     b = {b:g} cm   |   h = {h:g} cm   |   rec = {rec:g} cm",
+        f"     fc = {fc:g} kg/cm2   |   fy = {fy:g} kg/cm2",
+        f"     phi = {phi}  (Art. 9.3.2.1)",
+        "",
+        "  2. PERTALTE EFECTIVO",
+        f"     d = h - rec = {h:g} - {rec:g} = {d:g} cm",
+        "",
+        "  3. CORTANTE QUE RESISTE EL CONCRETO  [Art. 11.3.1]",
+        f"     Vc = 0.53*sqrt(fc)*b*d",
+        f"        = 0.53*{sqrt_fc:.4f}*{b:g}*{d:g}",
+        f"        = {vc_kg:.2f} kg  =  {_tn(vc_kg):.2f} Tn",
+        "",
+        "  4. CORTANTE MAXIMA DEL ACERO Y NOMINAL",
+        f"     Vs_max = 2.1*sqrt(fc)*b*d = 2.1*{sqrt_fc:.4f}*{b:g}*{d:g}",
+        f"            = {vs_max_kg:.2f} kg  =  {_tn(vs_max_kg):.2f} Tn",
+        f"     Vn_max = Vc + Vs_max = {_tn(vc_kg):.2f} + {_tn(vs_max_kg):.2f}",
+        f"            = {_tn(vn_max_kg):.2f} Tn  ({vn_max_kg:.0f} kg)",
+        "",
+        "  5. LIMITES DE DISENO",
+        f"     Limite inferior (sin estribos):  phi*Vc/2 = {phi}*({_tn(vc_kg):.2f}/2)",
+        f"                                   = {_tn(lim_inf):.2f} Tn  ({lim_inf:.0f} kg)",
+        f"     Limite superior (capacidad):    phi*Vn_max = {phi}*{_tn(vn_max_kg):.2f}",
+        f"                                   = {_tn(lim_sup):.2f} Tn  ({lim_sup:.0f} kg)",
+        "",
+        "  6. COMPARACION CON Vu",
+        f"     Vu = {_tn(vu_kg):.2f} Tn",
+    ]
+    if caso == "sin_refuerzo":
+        lines += [
+            f"     Vu ({_tn(vu_kg):.2f}) <= phi*Vc/2 ({_tn(lim_inf):.2f})",
+            "     -> No se requiere refuerzo por cortante (Av/s = 0).",
+        ]
+    elif caso == "con_refuerzo":
+        lines += [
+            f"     Vu ({_tn(vu_kg):.2f}) > phi*Vc/2 ({_tn(lim_inf):.2f})",
+            f"     Vu ({_tn(vu_kg):.2f}) <= phi*Vn_max ({_tn(lim_sup):.2f})",
+            "     -> Se requiere refuerzo por cortante.",
+        ]
+    else:
+        lines += [
+            f"     Vu ({_tn(vu_kg):.2f}) > phi*Vn_max ({_tn(lim_sup):.2f})",
+            "     -> Seccion insuficiente: aumentar peralte o fc.",
+        ]
+
+    vs_kg = detalle["vs_kg"]
+    if caso in ("con_refuerzo", "insuficiente"):
+        vs_calc = vu_kg / phi - vc_kg
+        lines += [
+            "",
+            "  7. CORTANTE A RESISTIR POR EL ACERO",
+            f"     Vs = Vu/phi - Vc = {vu_kg:.0f}/{phi} - {vc_kg:.0f}",
+            f"        = {vs_calc:.2f} kg",
+        ]
+        if vs_calc < 0:
+            lines.append(f"        Vs < 0  ->  se adopta Vs = 0 (el concreto absorbe todo el cortante).")
+        else:
+            lines.append(f"        = {_tn(vs_kg):.2f} Tn")
+        if caso == "con_refuerzo" and vs_kg > 0:
+            av_calc = detalle["av_s_calc"]
+            lines += [
+                "",
+                "  8. ARMADURA TRANSVERSAL REQUERIDA  [Art. 11.3.1]",
+                f"     Av/s (calculado) = Vs/(fy*d) = {_tn(vs_kg)*1000:.0f}/({fy:g}*{d:g})",
+                f"                      = {av_calc:.4f} cm2/cm",
+            ]
+
+    if caso != "insuficiente":
+        av1, av2, av_min = detalle["av_s_min1"], detalle["av_s_min2"], detalle["av_s_min"]
+        as_req = detalle["as_s_req"]
+        paso = "9" if caso == "con_refuerzo" and vs_kg > 0 else "8"
+        lines += [
+            "",
+            f"  {paso}. CUANTIA MINIMA DE ESTRIBOS  [Art. 11.3.1]",
+            f"     Av/s_min1 = 0.2*sqrt(fc)*b/fy = 0.2*{sqrt_fc:.4f}*{b:g}/{fy:g} = {av1:.4f} cm2/cm",
+            f"     Av/s_min2 = 3.5*b/fy = 3.5*{b:g}/{fy:g} = {av2:.4f} cm2/cm",
+            f"     Av/s_min  = max(Av/s_min1, Av/s_min2) = {av_min:.4f} cm2/cm",
+        ]
+        if caso == "sin_refuerzo":
+            lines.append("     Av/s req. = 0 (no se requiere refuerzo).")
+        else:
+            av_calc = detalle["av_s_calc"] or 0.0
+            lines += [
+                f"     Av/s (calculado) = {av_calc:.4f} cm2/cm",
+                f"     Av/s req. = max(Av/s calculado, Av/s_min) = {as_req:.4f} cm2/cm",
+            ]
+        s_base = detalle["s_max_base"]
+        s_fin = detalle["s_max"]
+        vs_umbral = detalle["vs_umbral_s"]
+        paso_s = str(int(paso) + 1)
+        lines += [
+            "",
+            f"  {paso_s}. ESPACIAMIENTO MAXIMO  [Art. 11.3.1]",
+            f"     s_max base = min(d/2, 60) = min({d:g}/2, 60) = {s_base:g} cm",
+        ]
+        if vs_kg > vs_umbral:
+            lines += [
+                f"     Vs ({_tn(vs_kg):.2f} Tn) > 1.1*sqrt(fc)*b*d ({_tn(vs_umbral):.2f} Tn)",
+                f"     -> s_max = s_max/2 = {s_fin:g} cm",
+            ]
+        else:
+            lines += [
+                f"     Vs ({_tn(vs_kg):.2f} Tn) <= 1.1*sqrt(fc)*b*d ({_tn(vs_umbral):.2f} Tn)",
+                f"     -> s_max = {s_fin:g} cm",
+            ]
+
+    lines += ["", "  CONCLUSION"]
+    if caso == "sin_refuerzo":
+        lines.append("     No se requiere armadura transversal por cortante.")
+    elif caso == "con_refuerzo":
+        lines.append(
+            f"     Usar Av/s >= {resultado.get('As/s req.', detalle['as_s_req']):.4f} cm2/cm"
+            f"  con estribos a espaciamiento s <= {resultado['s_max']:g} cm."
+        )
+    else:
+        lines.append(f"     {resultado.get('Error', detalle.get('error_msg', ''))}")
+
+    lines += ["", "-" * 60]
+    return "\n".join(lines)
+
+
+def handle_cortante_calc(args: list[str]) -> str:
+    """cas cortante calc <Vu> <b> <h> <fc> <fy> [rec] — vigas/columnas, sin proyecto."""
+    if len(args) < 5:
+        raise InvalidInput(
+            "Uso: cas cortante calc <Vu> <b> <h> <fc> <fy> [rec]\n"
+            "  Vu en Tn; fc, fy en kg/cm²; b, h, rec en cm (rec opcional, default 4 cm).\n"
+            "  Mismo procedimiento E.060 para vigas y columnas."
+        )
+    vu = to_float(args[0])
+    b, h = to_float(args[1]), to_float(args[2])
+    fc, fy = to_float(args[3]), to_float(args[4])
+    rec = to_float(args[5], default=4.0) if len(args) >= 6 else 4.0
+    out = run("cortante", "calc", {"Vu": vu, "b": b, "h": h, "fc": fc, "fy": fy, "rec": rec})
+    entrada = out.get("entrada", {})
+    resultado = out.get("resultado", {})
+    detalle = out.get("detalle", {})
+    return _format_cortante_calc_pasos(entrada, detalle, resultado)
 
 
 def handle_cortante_viga(args: list[str]) -> str:

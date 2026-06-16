@@ -14,6 +14,8 @@ dependencies = [
     "comtypes>=1.2.0",
     "pandas>=1.5.0",
     "numpy>=1.23.0",
+    "matplotlib>=3.5.0",
+    "mplcursors>=0.5.2",
 ]
 
 [project.scripts]

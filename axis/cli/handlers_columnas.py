@@ -1,28 +1,14 @@
 """Handlers CLI: diseño de columnas de concreto armado E.060.
 
-En columnas solo se trabaja con esfuerzos en Station 0 (los demas se ignoran).
- DATOS:
-  columna props          - Agregar/editar propiedades de columna
-  columna props-list     - Listar propiedades
-  columna esfuerzos      - Agregar esfuerzo de elemento
-  columna esfuerzos-list - Listar esfuerzos (solo Station 0)
-  columna story-forces   - Agregar story forces
-  columna drifts         - Agregar story drifts
-  columna alturas        - Agregar alturas de entrepiso
-  columna factor-r       - Configurar factor R
-  columna diagrama       - Agregar diagrama de interacción (CSV)
-  columna asignar        - Asignar diagramas a columnas
- ANÁLISIS:
-  columna q              - Paso 1: Índice de estabilidad Q
-  columna esbeltez       - Paso 2: Momentos extremos M1/M2
-  columna segundo-orden  - Paso 3: Evaluar efectos de segundo orden
-  columna cm             - Paso 4: Factor Cm
-  columna delta          - Paso 5: Factor de amplificación delta
-  columna esfuerzos-fin  - Paso 6: Esfuerzos finales amplificados
-  columna mn             - Paso 7: Momentos nominales Mn2/Mn3
-  columna estados        - Paso 8: Estados sísmicos combinados
-  columna verificacion   - Paso 9: Verificación P-M
-  columna resumen        - Resumen de verificación P-M
+Flujo recomendado:
+1. Preparar datos del modelo: esfuerzos, fuerzas de piso, derivas, alturas y factor R.
+2. Definir propiedades de cada columna: k, lu, Ix, Iy, Ag, Bd, fc y fy (una a una o con props-bulk).
+3. Cargar y asignar diagramas P-M (asignar o asignar-bulk).
+4. Ejecutar el procedimiento E.060: estabilidad, esbeltez, segundo orden y amplificacion.
+5. Verificar flexocompresion P-M y revisar el resumen final.
+
+Nota: los esfuerzos finales y la verificacion P-M usan Station 0. Para esbeltez se leen
+las stations extremas importadas desde ETABS.
 """
 
 from __future__ import annotations
@@ -54,9 +40,43 @@ from axis.core.database import (
     write_json,
     ELEMENT_FIELDNAMES,
 )
-from axis.cli.tables import format_table
+from axis.cli.tables import format_table, COLUMNAS_HEADER_MAP
+
+# Paso delta: Pu y Pc en kg (no usar encabezado Pu de muros en Tn)
+_DELTA_HEADER_MAP = {**COLUMNAS_HEADER_MAP, "Pu": "Pu\n(kg)"}
 from axis.cli.handlers import get_base_path
 from axis.data.etabs_table_reader import get_table, clear_table_cache
+
+
+PROCEDIMIENTO_COLUMNAS_E060 = """PROCEDIMIENTO DE DISEÑO DE COLUMNAS E.060
+
+FASE 0 - Preparacion
+  1. Importar o registrar: esfuerzos de columnas, Story Forces, Story Drifts y alturas.
+  2. Definir propiedades: k, lu, Ix, Iy, Ag, Bd, fc y fy.
+  3. Cargar diagramas P-M y asignarlos a cada columna.
+
+FASE 1 - Estabilidad global por piso
+  Paso 1: calcular indice Q y clasificar cada piso/direccion como arriostrado o no arriostrado.
+
+FASE 2 - Esbeltez y segundo orden
+  Paso 2: obtener M1/M2 en las stations extremas.
+  Paso 3: decidir si se pueden ignorar efectos de segundo orden.
+  Paso 4: calcular Cm.
+  Paso 5: calcular delta con EI, Pc y Pu.
+
+FASE 3 - Demandas amplificadas
+  Paso 6: amplificar M2 y M3 en Station 0.
+
+FASE 4 - Capacidad y verificacion
+  Paso 7: obtener Mn2/Mn3 desde los diagramas P-M.
+  Paso 8: ordenar estados sismicos combinados.
+  Paso 9: verificar P-M y generar resumen.
+
+Atajos utiles:
+  cas columna etabs-import [R_X] [R_Y]  -> trae datos desde ETABS.
+  cas columna diseno                    -> ejecuta las fases 1 a 4 con datos ya preparados.
+  cas columna etabs-diseno [R_X] [R_Y]  -> importa y diseña en un solo comando.
+"""
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -119,6 +139,119 @@ def _is_numeric(s: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _parse_col_props_values(prop_args: list[str]) -> dict:
+    """Parsea k, lu, inercias y materiales (sin Story ni Unique_Name)."""
+    if len(prop_args) < 6:
+        raise InvalidInput(
+            "Faltan parametros numericos. Minimo: <k> <lu> <I> <Ag> <Bd>\n"
+            "  Con Ix/Iy: <k> <lu> <Ix> <Iy> <Ag> <Bd> [fc] [fy]")
+    try:
+        k = float(prop_args[0])
+        lu = float(prop_args[1])
+        if len(prop_args) >= 9:
+            Ix = float(prop_args[2])
+            Iy = float(prop_args[3])
+            Ag = float(prop_args[4])
+            Bd = float(prop_args[5])
+            fc = float(prop_args[6]) if len(prop_args) > 6 else 210.0
+            fy = float(prop_args[7]) if len(prop_args) > 7 else 4200.0
+        elif len(prop_args) >= 8:
+            Ix = float(prop_args[2])
+            Iy = float(prop_args[3])
+            Ag = float(prop_args[4])
+            Bd = float(prop_args[5])
+            fc = float(prop_args[6]) if len(prop_args) > 6 else 210.0
+            fy = float(prop_args[7]) if len(prop_args) > 7 else 4200.0
+        elif len(prop_args) >= 7:
+            I_val = float(prop_args[2])
+            Ix = I_val
+            Iy = I_val
+            Ag = float(prop_args[3])
+            Bd = float(prop_args[4])
+            fc = float(prop_args[5])
+            fy = float(prop_args[6]) if len(prop_args) > 6 else 4200.0
+        else:
+            I_val = float(prop_args[2])
+            Ix = I_val
+            Iy = I_val
+            Ag = float(prop_args[3])
+            Bd = float(prop_args[4])
+            fc = 210.0
+            fy = 4200.0
+    except ValueError:
+        raise InvalidInput("Parametros numericos invalidos.")
+    Ec = _ec_from_fc(fc)
+    return {
+        "k": k,
+        "lu": lu,
+        "Ix": Ix,
+        "Iy": Iy,
+        "Ag": Ag,
+        "Ec": Ec,
+        "Bd": Bd,
+        "fc": fc,
+        "fy": fy,
+    }
+
+
+def _upsert_col_props_row(
+    pp: Path,
+    existing: list[dict],
+    fieldnames: list[str],
+    story: str,
+    un: str,
+    values: dict,
+) -> str:
+    """Inserta o actualiza una fila en col_props (lista en memoria). Retorna 'agregadas'|'actualizadas'."""
+    row = {
+        "Story": story,
+        "Unique_Name": un,
+        **values,
+    }
+    idx = next(
+        (
+            i
+            for i, r in enumerate(existing)
+            if r.get("Unique_Name") == un and r.get("Story") == story
+        ),
+        None,
+    )
+    row_clean = {k: row.get(k) for k in fieldnames}
+    if idx is not None:
+        existing[idx] = row_clean
+        return "actualizadas"
+    existing.append(row_clean)
+    return "agregadas"
+
+
+def _column_targets_from_esfuerzos(
+    pp: Path,
+    only_missing: bool = False,
+) -> list[tuple[str, str]]:
+    """Pares (Story, Unique_Name) desde col_esfuerzos."""
+    esfuerzos = read_csv(pp, "col_esfuerzos")
+    pairs: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for r in esfuerzos:
+        story = str(r.get("Story", "")).strip()
+        un = str(r.get("Unique_Name", "")).strip()
+        if not un:
+            continue
+        key = (story, un)
+        if key in seen:
+            continue
+        seen.add(key)
+        pairs.append(key)
+    if not only_missing:
+        return sorted(pairs, key=lambda x: (x[0], x[1]))
+    props = read_csv(pp, "col_props")
+    defined = {
+        (str(r.get("Story", "")).strip(), str(r.get("Unique_Name", "")).strip())
+        for r in props
+    }
+    return sorted([p for p in pairs if p not in defined], key=lambda x: (x[0], x[1]))
 
 
 def _normalize_col_props_rows(rows: list[dict], fieldnames: list[str]) -> None:
@@ -306,6 +439,108 @@ def handle_columna_props_list(args: list[str]) -> str:
         r["N"] = str(i + 1)
     cols = ["N", "Story", "Unique_Name", "k", "lu", "Ix", "Iy", "Ag", "Ec", "Bd", "fc", "fy"]
     return "Propiedades de columnas\n\n" + format_table(rows, columns=cols)
+
+
+def handle_columna_props_bulk(args: list[str]) -> str:
+    """cas columna props-bulk: mismas propiedades para varias columnas."""
+    pp = _project()
+    if not args:
+        raise InvalidInput(
+            "Uso habitual (varios grupos = un comando por grupo):\n"
+            "  cas columna props-bulk <UN1> <UN2> ... <k> <lu> <Ix> <Iy> <Ag> <Bd> [fc] [fy]\n"
+            "  cas columna props-bulk <UN1> <UN2> ... -- <k> <lu> ...\n"
+            "\n"
+            "Ejemplo — grupo A y grupo B con props distintas:\n"
+            "  cas columna props-bulk 1 20 30 40 50 -- 1.0 300 5e6 5e6 1600 0.5\n"
+            "  cas columna props-bulk 5 4 8 9 -- 1.2 280 4e6 4e6 1400 0.5\n"
+            "\n"
+            "Atajos opcionales (solo si quiere la MISMA props en muchas columnas sin listarlas):\n"
+            "  --todas      -> todas las de col_esfuerzos\n"
+            "  --faltantes  -> solo las que aun no tienen props\n"
+            "\n"
+            "  Una inercia: <k> <lu> <I> <Ag> <Bd> (6 numeros minimos).")
+
+    use_esfuerzos = False
+    only_missing = False
+    i = 0
+    if args[0] == "--todas":
+        use_esfuerzos = True
+        i = 1
+    elif args[0] == "--faltantes":
+        use_esfuerzos = True
+        only_missing = True
+        i = 1
+
+    rest = args[i:]
+    if use_esfuerzos:
+        prop_args = rest
+    elif "--" in rest:
+        sep = rest.index("--")
+        un_tokens = [t.strip() for t in rest[:sep] if t.strip()]
+        prop_args = rest[sep + 1:]
+    else:
+        un_tokens = []
+        prop_start = None
+        for j, tok in enumerate(rest):
+            if _is_numeric(tok):
+                prop_start = j
+                break
+            un_tokens.append(tok.strip())
+        if prop_start is None:
+            raise InvalidInput(
+                "No se encontraron parametros numericos. Separe con '--' si lo prefiere.")
+        prop_args = rest[prop_start:]
+
+    values = _parse_col_props_values(prop_args)
+
+    if use_esfuerzos:
+        targets = _column_targets_from_esfuerzos(pp, only_missing=only_missing)
+        if not targets:
+            msg = "No hay columnas pendientes en esfuerzos." if only_missing else (
+                "No hay esfuerzos importados. Use 'cas columna etabs-import'.")
+            raise InvalidInput(msg)
+    else:
+        if not un_tokens:
+            raise InvalidInput(
+                "Indique al menos un Unique_Name, o use --todas / --faltantes.")
+        targets = []
+        for un in un_tokens:
+            if not un:
+                continue
+            targets.append((_story_from_esfuerzos(pp, un), un))
+
+    existing = read_csv(pp, "col_props")
+    fieldnames = ELEMENT_FIELDNAMES["col_props"]
+    _normalize_col_props_rows(existing, fieldnames)
+
+    n_new = 0
+    n_upd = 0
+    sin_story: list[str] = []
+    for story, un in targets:
+        accion = _upsert_col_props_row(pp, existing, fieldnames, story, un, values)
+        if accion == "agregadas":
+            n_new += 1
+        else:
+            n_upd += 1
+        if not story:
+            sin_story.append(un)
+
+    write_csv(pp, existing, "col_props", fieldnames)
+
+    for i_row, r in enumerate(existing):
+        r["N"] = str(i_row + 1)
+    cols = ["N", "Story", "Unique_Name", "k", "lu", "Ix", "Iy", "Ag", "Ec", "Bd"]
+    msg = (
+        f"Props masivas: {len(targets)} columna(s) — "
+        f"{n_new} agregada(s), {n_upd} actualizada(s)."
+    )
+    if sin_story:
+        msg += (
+            f"\n  Sin Story en esfuerzos ({len(sin_story)}): "
+            + ", ".join(sin_story[:8])
+            + ("..." if len(sin_story) > 8 else "")
+        )
+    return msg + "\n\n" + format_table(existing, columns=cols)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -709,7 +944,7 @@ def handle_columna_etabs_import(args: list[str]) -> str:
     lines.append(f"  Factor R: R_X={r_x}, R_Y={r_y}")
     header = "Importacion desde ETABS\n\n" + "\n".join(lines)
     header += "\n\nSiguiente: defina propiedades por columna (cas columna props ...)"
-    header += "\nLuego ejecute los pasos: columna q, esbeltez, segundo-orden, cm, delta, esfuerzos-fin, etc."
+    header += "\nLuego cargue/asigne diagramas P-M y ejecute: cas columna diseno"
     return header
 
 
@@ -717,42 +952,362 @@ def handle_columna_etabs_import(args: list[str]) -> str:
 # DATOS: Diagramas de interacción
 # ═══════════════════════════════════════════════════════════════════════
 
+def _expand_un_tokens(tokens: list[str]) -> list[str]:
+    """Separa nombres unidos por comas (ej. '12,24,16' -> ['12','24','16'])."""
+    out: list[str] = []
+    for t in tokens:
+        for part in str(t).replace(";", ",").split(","):
+            p = part.strip()
+            if p:
+                out.append(p)
+    return out
+
+
+def _unique_names_from_esfuerzos(pp: Path, only_missing: bool = False) -> list[str]:
+    """Unique_Name distintos en col_esfuerzos; opcionalmente solo sin asignar."""
+    esfuerzos = read_csv(pp, "col_esfuerzos")
+    seen: set[str] = set()
+    names: list[str] = []
+    for r in esfuerzos:
+        un = str(r.get("Unique_Name", "")).strip()
+        if not un or un in seen:
+            continue
+        seen.add(un)
+        names.append(un)
+    if only_missing:
+        asig = {
+            str(r.get("Unique_Name", "")).strip()
+            for r in read_csv(pp, "col_asignaciones")
+        }
+        names = [n for n in names if n not in asig]
+    return sorted(names)
+
+
+def _upsert_col_asignacion(
+    existing: list[dict],
+    un: str,
+    nom: str,
+    ult: str,
+) -> str:
+    """Inserta o actualiza asignación. Retorna 'agregadas' o 'actualizadas'."""
+    row = {"Unique_Name": un, "Diagrama_Nominal": nom, "Diagrama_Ultimo": ult}
+    idx = next(
+        (i for i, r in enumerate(existing) if r.get("Unique_Name") == un),
+        None,
+    )
+    if idx is not None:
+        existing[idx] = row
+        return "actualizadas"
+    existing.append(row)
+    return "agregadas"
+
+
+def _parse_asignar_bulk_diagramas(rest: list[str]) -> tuple[list[str], str, str]:
+    """Parsea lista de UN y nombres de diagrama (con o sin separador '--')."""
+    if not rest:
+        raise InvalidInput("Faltan nombres de diagrama (Nominal y opcional Ultimo).")
+    if "--" in rest:
+        sep = rest.index("--")
+        un_tokens = _expand_un_tokens(rest[:sep])
+        diag = [t.strip() for t in rest[sep + 1:] if t.strip()]
+    elif len(rest) == 2:
+        un_tokens = _expand_un_tokens([rest[0]])
+        diag = [rest[1].strip()]
+    elif len(rest) >= 3:
+        # Sin '--': el ultimo token es Nominal; el resto son Unique_Name.
+        # Nominal + Ultimo: use '--' (ej. asignar-bulk 12 24 -- Col30 Col30u).
+        un_tokens = _expand_un_tokens(rest[:-1])
+        diag = [rest[-1].strip()]
+    else:
+        raise InvalidInput(
+            "Pocos argumentos. Use: <UN...> <Nom> o <UN...> -- <Nom> [Ult].")
+    if not un_tokens:
+        raise InvalidInput("Indique al menos un Unique_Name.")
+    if not diag:
+        raise InvalidInput("Indique Diagrama_Nominal (y opcional Diagrama_Ultimo).")
+    nom = diag[0]
+    ult = diag[1] if len(diag) > 1 else nom
+    return un_tokens, nom, ult
+
+
+def _format_asignaciones_table(existing: list[dict]) -> str:
+    for i, r in enumerate(existing):
+        r["N"] = str(i + 1)
+    cols = ["N", "Unique_Name", "Diagrama_Nominal", "Diagrama_Ultimo"]
+    return format_table(existing, columns=cols)
+
+
 def handle_columna_asignar(args: list[str]) -> str:
     """cas columna asignar <Unique_Name> <Diagrama_Nominal> [Diagrama_Ultimo]"""
     pp = _project()
     if len(args) < 2:
         raise InvalidInput(
-            "Uso: cas columna asignar <Unique_Name> <Diagrama_Nominal> [Diagrama_Ultimo]")
+            "Uso: cas columna asignar <Unique_Name> <Diagrama_Nominal> [Diagrama_Ultimo]\n"
+            "  Varias columnas: cas columna asignar-bulk <UN1> <UN2> ... <Nom> [Ult]")
     un = args[0]
     nom = args[1]
     ult = args[2] if len(args) > 2 else nom
 
-    row = {"Unique_Name": un, "Diagrama_Nominal": nom, "Diagrama_Ultimo": ult}
     existing = read_csv(pp, "col_asignaciones")
-    idx = next((i for i, r in enumerate(existing) if r.get("Unique_Name") == un), None)
-    if idx is not None:
-        existing[idx] = row
-        msg = f"Asignacion de '{un}' actualizada."
-    else:
-        existing.append(row)
-        msg = f"Asignacion de '{un}' creada."
-
+    accion = _upsert_col_asignacion(existing, un, nom, ult)
     write_csv(pp, existing, "col_asignaciones", ELEMENT_FIELDNAMES["col_asignaciones"])
 
-    for i, r in enumerate(existing):
-        r["N"] = str(i + 1)
-    cols = ["N", "Unique_Name", "Diagrama_Nominal", "Diagrama_Ultimo"]
-    return msg + "\n\n" + format_table(existing, columns=cols)
+    msg = f"Asignacion de '{un}' {accion}."
+    return msg + "\n\n" + _format_asignaciones_table(existing)
+
+
+def handle_columna_asignar_bulk(args: list[str]) -> str:
+    """cas columna asignar-bulk: mismo diagrama P-M para varias columnas."""
+    pp = _project()
+    if not args:
+        raise InvalidInput(
+            "Uso habitual:\n"
+            "  cas columna asignar-bulk <UN1> <UN2> ... <Nominal> [Ultimo]\n"
+            "  cas columna asignar-bulk <UN1> <UN2> ... -- <Nominal> [Ultimo]\n"
+            "\n"
+            "Ejemplos:\n"
+            "  cas columna asignar-bulk 12 24 16 Col30x50\n"
+            "  cas columna asignar-bulk 12 24 16 -- Col30x50 Col30x50_ult\n"
+            "  cas columna asignar-bulk 12,24,16 Col30x50\n"
+            "\n"
+            "Atajos (mismo diagrama para muchas columnas sin listarlas):\n"
+            "  cas columna asignar-bulk --todas <Nominal> [Ultimo]\n"
+            "  cas columna asignar-bulk --faltantes <Nominal> [Ultimo]")
+
+    use_esfuerzos = False
+    only_missing = False
+    i = 0
+    if args[0] == "--todas":
+        use_esfuerzos = True
+        i = 1
+    elif args[0] == "--faltantes":
+        use_esfuerzos = True
+        only_missing = True
+        i = 1
+
+    rest = args[i:]
+    if use_esfuerzos:
+        if not rest:
+            raise InvalidInput(
+                "Tras --todas o --faltantes indique <Nominal> [Ultimo].")
+        nom = rest[0].strip()
+        ult = rest[1].strip() if len(rest) > 1 else nom
+        un_tokens = _unique_names_from_esfuerzos(pp, only_missing=only_missing)
+        if not un_tokens:
+            msg = (
+                "No hay columnas pendientes de asignar."
+                if only_missing
+                else "No hay esfuerzos importados. Use 'cas columna etabs-import'."
+            )
+            raise InvalidInput(msg)
+    else:
+        un_tokens, nom, ult = _parse_asignar_bulk_diagramas(rest)
+
+    existing = read_csv(pp, "col_asignaciones")
+    fieldnames = ELEMENT_FIELDNAMES["col_asignaciones"]
+    n_new = 0
+    n_upd = 0
+    for un in un_tokens:
+        accion = _upsert_col_asignacion(existing, un, nom, ult)
+        if accion == "agregadas":
+            n_new += 1
+        else:
+            n_upd += 1
+
+    write_csv(pp, existing, "col_asignaciones", fieldnames)
+
+    msg = (
+        f"Asignaciones masivas: {len(un_tokens)} columna(s) — "
+        f"{n_new} agregada(s), {n_upd} actualizada(s).\n"
+        f"  Diagrama nominal: {nom}"
+        + (f" | ultimo: {ult}" if ult != nom else "")
+    )
+    return msg + "\n\n" + _format_asignaciones_table(existing)
+
+
+def _nombres_diagramas_disponibles(diagramas: dict) -> set[str]:
+    names: set[str] = set()
+    for key in diagramas:
+        if key.endswith("_nominal"):
+            names.add(key.replace("_nominal", ""))
+        elif key.endswith("_ultimo"):
+            names.add(key.replace("_ultimo", ""))
+    return names
+
+
+def _puntos_superficie_diagrama(diagramas: dict, section_name: str) -> list[dict] | None:
+    """Superficie última si existe; si no, nominal (igual que verificación P-M)."""
+    key_ult = f"{section_name}_ultimo"
+    key_nom = f"{section_name}_nominal"
+    pts = diagramas.get(key_ult) or diagramas.get(key_nom)
+    if pts and isinstance(pts, list):
+        return pts
+    return None
+
+
+def _columnas_asignadas_a_diagrama(
+    asignaciones: list[dict],
+    section_name: str,
+    props_unique: set[str] | None = None,
+) -> set[str]:
+    """Columnas cuyo diagrama nominal o último coincide con section_name."""
+    section = section_name.strip()
+    uns: set[str] = set()
+    for a in asignaciones:
+        un = str(a.get("Unique_Name", "")).strip().upper()
+        if not un:
+            continue
+        if props_unique is not None and un not in props_unique:
+            continue
+        nom = str(a.get("Diagrama_Nominal", "")).strip()
+        ult = str(a.get("Diagrama_Ultimo", "")).strip()
+        if nom == section or ult == section:
+            uns.add(un)
+    return uns
+
+
+def _clave_ratio_verif(story: str, un: str, load_case: str, pu: float) -> tuple:
+    """Clave única: mismo nombre de caso puede tener Pu distinto (SX+ / SX-)."""
+    return (
+        story.strip(),
+        un.strip().upper(),
+        load_case.strip(),
+        round(float(pu), 4),
+    )
+
+
+def _esfuerzos_para_diagrama(
+    esfuerzos_fin: list[dict],
+    columnas: set[str],
+    ratios_verif: dict[tuple, str | float] | None = None,
+) -> list[dict]:
+    """Lista de puntos para el gráfico; ratios_verif clave (Story, UN, caso, Pu)."""
+    out: list[dict] = []
+    for r in esfuerzos_fin:
+        if str(r.get("Unique_Name", "")).strip().upper() not in columnas:
+            continue
+        story = str(r.get("Story", "")).strip()
+        un = str(r.get("Unique_Name", "")).strip()
+        lc = str(r.get("Load_Case", r.get("Output_Case", r.get("Output Case", "")))).strip()
+        p = float(r.get("P", 0))
+        row = {
+            "P": p,
+            "M2": float(r.get("M2", 0)),
+            "M3": float(r.get("M3", 0)),
+            "Story": story,
+            "Unique_Name": un,
+            "Load_Case": lc,
+        }
+        if ratios_verif is not None:
+            ratio = ratios_verif.get(_clave_ratio_verif(story, un, lc, p))
+            if ratio is not None:
+                row["Ratio"] = ratio
+        out.append(row)
+    return out
+
+
+def _mapa_ratios_verificacion(
+    pp: Path,
+    columnas: set[str],
+) -> dict[tuple, str | float]:
+    """Ratio por (Story, UN, Load_Case, Pu) desde verificacion_pm.csv."""
+    rows = read_results_csv(pp, "columnas/verificacion_pm.csv")
+    m: dict[tuple, str | float] = {}
+    for r in rows:
+        un = str(r.get("Unique_Name", "")).strip().upper()
+        if un not in columnas:
+            continue
+        pu = float(r.get("Pu", r.get("P", 0)))
+        key = _clave_ratio_verif(
+            str(r.get("Story", "")),
+            un,
+            str(r.get("Load_Case", "")),
+            pu,
+        )
+        m[key] = r.get("Ratio", "")
+    return m
+
+
+def _diagnostico_pm_diagrama(
+    section_name: str,
+    tipo_sup: str,
+    puntos: list[dict],
+    columnas: set[str],
+    esfuerzos_fin: list[dict],
+    asignaciones: list[dict],
+    diagramas: dict,
+) -> str:
+    """Texto de diagnóstico: rango P, esfuerzos fuera de rango y top ratios."""
+    from axis.columnas.analysis import (
+        InteractionSurface,
+        compute_pm_verification,
+        _ratio_float,
+    )
+
+    surface = InteractionSurface(puntos)
+    p_min, p_max = surface.p_bounds()
+    esf_filt = [
+        r for r in esfuerzos_fin
+        if str(r.get("Unique_Name", "")).strip().upper() in columnas
+    ]
+    asig_filt = [
+        a for a in asignaciones
+        if str(a.get("Unique_Name", "")).strip().upper() in columnas
+    ]
+    nominales = {k.replace("_nominal", ""): v for k, v in diagramas.items() if "_nominal" in k}
+    ultimos = {k.replace("_ultimo", ""): v for k, v in diagramas.items() if "_ultimo" in k}
+    verif = compute_pm_verification(esf_filt, asig_filt, nominales, ultimos)
+
+    n_fuera_p = sum(1 for r in verif if r.get("P_En_Rango") == "No")
+    n_no_cumple = sum(1 for r in verif if r.get("Cumple") == "No")
+
+    lineas = [
+        f"--- Diagnostico P-M: {section_name} ({tipo_sup}) ---",
+        f"  Rango P del diagrama: {p_min:.3f} a {p_max:.3f} Tn",
+        f"  Columnas: {', '.join(sorted(columnas))}",
+        f"  Esfuerzos graficados: {len(esf_filt)} | Verificados: {len(verif)}",
+        f"  Pu fuera del diagrama: {n_fuera_p} (naranja en el grafico)",
+        f"  No cumplen P-M: {n_no_cumple}",
+    ]
+
+    fuera = [r for r in verif if r.get("P_En_Rango") == "No"]
+    if fuera:
+        lineas.append("  Combinaciones con Pu fuera del diagrama:")
+        for r in fuera[:12]:
+            lineas.append(
+                f"    Col {r.get('Unique_Name')} | {r.get('Load_Case')} | "
+                f"Pu={r.get('Pu')} Tn | M2={r.get('M2')} M3={r.get('M3')}"
+            )
+        if len(fuera) > 12:
+            lineas.append(f"    ... y {len(fuera) - 12} mas")
+
+    top = sorted(verif, key=lambda r: -_ratio_float(r.get("Ratio", 0)))[:8]
+    if top:
+        lineas.append("  Mayores ratios (demanda/capacidad):")
+        for r in top:
+            ratio = r.get("Ratio", "")
+            lineas.append(
+                f"    Col {r.get('Unique_Name')} | {r.get('Load_Case')} | "
+                f"Pu={r.get('Pu')} | Ratio={ratio} | P_en_rango={r.get('P_En_Rango')} | {r.get('Cumple')}"
+            )
+
+    return "\n".join(lineas)
 
 
 def handle_columna_diagrama(args: list[str]) -> str:
-    """cas columna diagrama [nombre_seccion]
+    """cas columna diagrama [nombre_seccion] [--diag]
 
-    Muestra la superficie de interacción 3D con todos los puntos de esfuerzos finales
-    (results/columnas/esfuerzos_finales.csv). Si no se indica nombre_seccion, se usa
-    el primer diagrama nominal asignado a alguna columna (o el primero disponible).
+    Abre el gráfico 3D sin mensajes en consola. --diag opcional: resumen P-M en texto.
     Requiere: pip install matplotlib scipy
     """
+    show_diag = False
+    rest: list[str] = []
+    for a in args:
+        if a.strip().lower() in ("--diag", "-d"):
+            show_diag = True
+        else:
+            rest.append(a)
+
     pp = _project()
     esfuerzos_fin = read_results_csv(pp, "columnas/esfuerzos_finales.csv")
     if not esfuerzos_fin:
@@ -760,43 +1315,79 @@ def handle_columna_diagrama(args: list[str]) -> str:
             "Sin esfuerzos finales. Ejecute antes 'cas columna esfuerzos-fin' (o 'cas columna diseno')."
         )
     diagramas = read_json(pp, "diagramas.json") or {}
-    nominales = {k.replace("_nominal", ""): v for k, v in diagramas.items() if "_nominal" in k}
-    if not nominales:
+    disponibles = _nombres_diagramas_disponibles(diagramas)
+    if not disponibles:
         raise InvalidInput(
-            "No hay diagramas nominales. Use 'cas diagrama add <nombre> nominal <archivo>'."
+            "No hay diagramas cargados. Use 'cas diagrama add <nombre> nominal <archivo>'."
         )
-    if args:
-        section_name = args[0].strip()
-        if section_name not in nominales:
+    asignaciones = read_csv(pp, "col_asignaciones")
+    props = read_csv(pp, "col_props")
+    props_unique = {str(r.get("Unique_Name", "")).strip().upper() for r in props}
+
+    if rest:
+        section_name = rest[0].strip()
+        if section_name not in disponibles:
             raise InvalidInput(
-                f"No existe diagrama nominal '{section_name}'. Disponibles: {sorted(nominales.keys())}"
+                f"No existe diagrama '{section_name}'. Disponibles: {sorted(disponibles)}"
             )
     else:
-        asignaciones = read_csv(pp, "col_asignaciones")
-        asignados = {str(a.get("Diagrama_Nominal", "")).strip() for a in asignaciones if a.get("Diagrama_Nominal")}
-        section_name = next((s for s in nominales if s in asignados), None)
+        asignados: set[str] = set()
+        for a in asignaciones:
+            for k in ("Diagrama_Nominal", "Diagrama_Ultimo"):
+                s = str(a.get(k, "")).strip()
+                if s:
+                    asignados.add(s)
+        section_name = next((s for s in sorted(disponibles) if s in asignados), None)
         if section_name is None:
-            section_name = sorted(nominales)[0]
-    puntos = nominales[section_name]
-    if not puntos or not isinstance(puntos, list):
+            section_name = sorted(disponibles)[0]
+
+    puntos = _puntos_superficie_diagrama(diagramas, section_name)
+    if not puntos:
         raise InvalidInput(f"El diagrama '{section_name}' no tiene puntos válidos.")
-    puntos_esfuerzo = [
-        {"P": float(r.get("P", 0)), "M2": float(r.get("M2", 0)), "M3": float(r.get("M3", 0))}
-        for r in esfuerzos_fin
-    ]
+
+    columnas = _columnas_asignadas_a_diagrama(asignaciones, section_name, props_unique or None)
+    if not columnas:
+        raise InvalidInput(
+            f"Ninguna columna con propiedades está asignada al diagrama '{section_name}'.\n"
+            "Use 'cas columna asignar <UN> <Nominal> [Ultimo]'."
+        )
+
+    ratios_map = _mapa_ratios_verificacion(pp, columnas)
+    puntos_esfuerzo = _esfuerzos_para_diagrama(
+        esfuerzos_fin, columnas, ratios_verif=ratios_map or None
+    )
+    if not puntos_esfuerzo:
+        raise InvalidInput(
+            f"Sin esfuerzos finales para columnas asignadas a '{section_name}'."
+        )
+
+    tipo_sup = "ultimo" if diagramas.get(f"{section_name}_ultimo") else "nominal"
+    cols_txt = ", ".join(sorted(columnas))
+    from axis.columnas.analysis import InteractionSurface
     from axis.cli.pm_plotter import plot_superficie_interaccion
+
+    surface = InteractionSurface(puntos)
+    p_rango = surface.p_bounds()
+
     try:
         plot_superficie_interaccion(
             puntos,
             titulo="Superficie de Interacción P-M2-M3",
-            subtitulo=f"Diagrama {section_name} — {len(puntos_esfuerzo)} esfuerzos finales (Station 0)",
+            subtitulo=(
+                f"Diagrama {section_name} ({tipo_sup}) — {len(puntos_esfuerzo)} esfuerzos — "
+                f"P=[{p_rango[0]:.1f}, {p_rango[1]:.1f}] Tn — columnas: {cols_txt}"
+            ),
             puntos_esfuerzo=puntos_esfuerzo,
+            p_rango=p_rango,
         )
     except RuntimeError as e:
         raise InvalidInput(str(e)) from e
-    return (
-        f"Gráfico mostrado: superficie '{section_name}' con {len(puntos_esfuerzo)} puntos de esfuerzos finales."
-    )
+
+    if show_diag:
+        return _diagnostico_pm_diagrama(
+            section_name, tipo_sup, puntos, columnas, esfuerzos_fin, asignaciones, diagramas
+        )
+    return ""
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -834,7 +1425,10 @@ def handle_columna_q(args: list[str]) -> str:
         r["N"] = str(i + 1)
     cols = ["N", "Story", "Direction", "Pu", "Vus", "Drift_R", "Q", "Classification"]
     return (
-        "PASO 1: Indice de Estabilidad Q\n\n"
+        "PASO 1: Indice de Estabilidad Q\n"
+        "  Drift_R = Drift * 0.75 * R\n"
+        "  Q = (Pu * Drift_R) / Vus\n"
+        "  Q <= 0.06 -> Arriostrado; Q > 0.06 -> No arriostrado\n\n"
         + format_table(results, columns=cols)
         + f"\n\nResultados guardados en results/columnas/q_analysis.csv"
     )
@@ -879,7 +1473,10 @@ def handle_columna_esbeltez(args: list[str]) -> str:
     cols = ["N", "Story", "Unique_Name", "M1_X", "M2_X", "M1_Y", "M2_Y",
             "Curvatura_X", "Curvatura_Y"]
     return (
-        "PASO 2: Momentos Extremos (Esbeltez)\n\n"
+        "PASO 2: Momentos Extremos (Esbeltez)\n"
+        "  M1 = menor |M| con signo; M2 = mayor |M| con signo (stations extremas)\n"
+        "  Combinacion critica: max(34 - 12*M1/M2)\n"
+        "  Curvatura: Simple (un signo) | Doble (+ y -)\n\n"
         + format_table(results, columns=cols)
         + "\n\nResultados guardados en results/columnas/esbeltez.csv"
     )
@@ -1001,10 +1598,11 @@ def handle_columna_delta(args: list[str]) -> str:
             "EI_Y", "Pc_Y", "Cm_Y", "Delta_Y"]
     return (
         "PASO 5: Factor de Amplificacion Delta\n"
-        "  EI = (0.4*Ec*I)/(1+Bd)  [Ix para dir X, Iy para dir Y]\n"
+        "  EI = (0.4*Ec*I)/(1+Bd)  [Iy para dir X, Ix para dir Y]\n"
         "  Pc = pi^2*EI/(k*lu)^2\n"
-        "  delta = Cm/(1-0.75*Pu/Pc) >= 1.0\n\n"
-        + format_table(results, columns=cols)
+        "  delta = Cm/(1-0.75*Pu/Pc) >= 1.0\n"
+        "  Pu y Pc en kg (P de esfuerzos en Tn x 1000).\n\n"
+        + format_table(results, columns=cols, header_map=_DELTA_HEADER_MAP)
         + "\n\nResultados guardados en results/columnas/delta.csv"
     )
 
@@ -1082,18 +1680,37 @@ def handle_columna_mn(args: list[str]) -> str:
     if not results:
         un_esf = {str(r.get("Unique_Name", "")).strip() for r in esfuerzos_fin}
         un_asig = {str(r.get("Unique_Name", "")).strip() for r in asignaciones}
-        nom_asig = {str(r.get("Diagrama_Nominal", "")).strip() for r in asignaciones}
-        raise InvalidInput(
-            "No se calcularon momentos nominales. Causas posibles:\n"
-            "  1) Unique_Name en asignaciones no coincide con los de esfuerzos importados.\n"
-            f"     Columnas en esfuerzos: {sorted(un_esf)[:10]}{'...' if len(un_esf) > 10 else ''}\n"
-            f"     Columnas en asignaciones: {sorted(un_asig)}\n"
-            "  2) Diagrama_Nominal no existe en diagramas cargados.\n"
-            f"     Diagramas asignados: {sorted(nom_asig)}\n"
-            f"     Diagramas disponibles: {sorted(nominales.keys())}\n"
-            "  Solucion: cas columna asignar <Unique_Name> <Diagrama> para cada columna;\n"
-            "  cas diagrama add <nombre> nominal <archivo> si falta cargar diagramas."
-        )
+        nom_asig = {str(r.get("Diagrama_Nominal", "")).strip() for r in asignaciones if r.get("Diagrama_Nominal")}
+        diag_faltantes = sorted(nom_asig - set(nominales.keys()))
+        sin_cruce = sorted(un_esf - un_asig)
+        sin_props = sorted((un_esf & un_asig) - props_unique)
+        lines = ["No se calcularon momentos nominales. Causas posibles:"]
+        if diag_faltantes:
+            lines.append(
+                "  1) Diagrama_Nominal asignado no esta cargado en diagramas.json.\n"
+                f"     Faltan en BD: {diag_faltantes}\n"
+                f"     Diagramas disponibles: {sorted(nominales.keys())}\n"
+                "     Solucion: cas diagrama add <nombre> nominal <archivo>\n"
+                "     o reasignar: cas columna asignar-bulk --todas P1"
+            )
+        if sin_cruce:
+            lines.append(
+                "  2) Columnas con esfuerzos sin asignacion de diagrama.\n"
+                f"     Sin asignar: {sin_cruce[:15]}{'...' if len(sin_cruce) > 15 else ''}\n"
+                "     Solucion: cas columna asignar-bulk --faltantes <Diagrama>"
+            )
+        if sin_props:
+            lines.append(
+                "  3) Columnas con esfuerzos/asignacion pero sin fila en col_props.\n"
+                f"     Sin propiedades: {sin_props[:15]}{'...' if len(sin_props) > 15 else ''}\n"
+                "     Solucion: cas columna props ... para esas columnas."
+            )
+        if len(lines) == 1:
+            lines.append(
+                "  Revise asignaciones, diagramas y col_props.\n"
+                f"     Esfuerzos: {len(un_esf)} columnas | Asignaciones: {len(un_asig)} | Props: {len(props_unique)}"
+            )
+        raise InvalidInput("\n".join(lines))
 
     write_results_csv(pp, "columnas/momentos_nominales.csv", results)
 
@@ -1167,24 +1784,211 @@ def handle_columna_verificacion(args: list[str]) -> str:
     if not ultimos and not nominales:
         raise InvalidInput("Sin diagramas. Use 'cas columna diagrama ...'.")
 
-    from axis.columnas.analysis import compute_pm_verification
+    from axis.columnas.analysis import compute_pm_verification, _ratio_float
     results = compute_pm_verification(esfuerzos_fin, asignaciones, nominales, ultimos)
     results = [r for r in results if str(r.get("Unique_Name", "")).strip() in props_unique]
 
     if not results:
         return "No se pudieron generar resultados de verificacion P-M."
 
+    results.sort(key=lambda r: -_ratio_float(r.get("Ratio", 0)))
+
     write_results_csv(pp, "columnas/verificacion_pm.csv", results)
 
     for i, r in enumerate(results):
         r["N"] = str(i + 1)
-    cols = ["N", "Story", "Unique_Name", "Load_Case",
-            "Pu", "M2", "M3", "Mu_Equiv", "Cap_Ultima", "Ratio", "Cumple"]
+    cols = [
+        "N", "Story", "Unique_Name", "Load_Case",
+        "Pu", "M2", "M3", "Mu_Equiv", "Cap_Ultima", "Ratio", "Cumple",
+    ]
+    fuera = [r for r in results if r.get("P_En_Rango") == "No"]
+    nota = ""
+    if fuera:
+        nota = (
+            f"\n\n  ATENCION: {len(fuera)} combinacion(es) con Pu fuera del rango del diagrama "
+            f"(se ven fuera de la superficie en el grafico 3D). Ratio = inf, Cumple = No.\n"
+            "  Revise el diagrama SAP o la demanda axial; el caso critico por traccion/compresion "
+            "extrema suele ser el que aparece en la punta del diagrama."
+        )
     return (
-        "PASO 9: Verificacion P-M (Flexocompresion)\n\n"
+        "PASO 9: Verificacion P-M (Flexocompresion)\n"
+        "  Ordenado por Ratio descendente.\n\n"
         + format_table(results, columns=cols)
+        + nota
         + "\n\nResultados guardados en results/columnas/verificacion_pm.csv"
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# REPORTE CONSOLIDADO (MD + DOCX + diagramas P-M)
+# ═══════════════════════════════════════════════════════════════════════
+
+def _sanitize_section(name: str) -> str:
+    s = name.strip()
+    return "".join(c for c in s if c.isalnum() or c in ("-", "_")) or "columna"
+
+
+def _generar_docx_columnas(
+    md_partes: list[str],
+    docx_path: str,
+    imagenes: list[tuple[str, str]] | None = None,
+) -> str | None:
+    """Genera Word reutilizando el estilo de sismo e inserta imágenes P-M al final."""
+    try:
+        from axis.reportes.docx_sismo import generar_docx_sismo
+        from docx import Document
+        from docx.shared import Cm
+    except ImportError:
+        return None
+
+    ruta = generar_docx_sismo(md_partes, docx_path)
+    if not ruta:
+        return None
+
+    if imagenes:
+        try:
+            doc = Document(ruta)
+            for nombre_diag, img in imagenes:
+                doc.add_page_break()
+                p = doc.add_paragraph()
+                run = p.add_run(f"Superficie de interacción – {nombre_diag}")
+                run.bold = True
+                doc.add_paragraph()
+                doc.add_picture(img, width=Cm(15))
+            doc.save(ruta)
+        except Exception:
+            pass
+
+    return ruta
+
+
+def _imagenes_diagramas_columnas(
+    pp: Path,
+    esfuerzos_fin: list[dict],
+    asignaciones: list[dict],
+    diagramas: dict,
+    props_unique: set[str],
+) -> tuple[list[tuple[str, str]], list[str]]:
+    """Una imagen por diagrama, con esfuerzos de columnas asignadas (nominal o último)."""
+    from axis.cli.pm_plotter import save_superficie_interaccion
+
+    section_names: set[str] = set()
+    for a in asignaciones:
+        un = str(a.get("Unique_Name", "")).strip().upper()
+        if not un or un not in props_unique:
+            continue
+        for k in ("Diagrama_Nominal", "Diagrama_Ultimo"):
+            s = str(a.get(k, "")).strip()
+            if s:
+                section_names.add(s)
+
+    imagenes: list[tuple[str, str]] = []
+    md_bloques: list[str] = []
+    results_dir = pp / "results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    for section_name in sorted(section_names):
+        uns = _columnas_asignadas_a_diagrama(asignaciones, section_name, props_unique)
+        puntos = _puntos_superficie_diagrama(diagramas, section_name)
+        if not puntos or not uns:
+            continue
+
+        puntos_esfuerzo = _esfuerzos_para_diagrama(esfuerzos_fin, uns)
+        if not puntos_esfuerzo:
+            continue
+
+        tipo_sup = "ultimo" if diagramas.get(f"{section_name}_ultimo") else "nominal"
+        from axis.columnas.analysis import InteractionSurface
+
+        surface = InteractionSurface(puntos)
+        p_rango = surface.p_bounds()
+        img_path = results_dir / f"columnas_reporte_{_sanitize_section(section_name)}_pm.png"
+        cols_txt = ", ".join(sorted(uns))
+        subtit = (
+            f"Diagrama {section_name} ({tipo_sup}) — {len(puntos)} pts — "
+            f"{len(puntos_esfuerzo)} esfuerzos — P=[{p_rango[0]:.1f},{p_rango[1]:.1f}] Tn — cols: {cols_txt}"
+        )
+        try:
+            save_superficie_interaccion(
+                puntos,
+                str(img_path),
+                titulo="Superficie de Interacción P-M2-M3",
+                subtitulo=subtit,
+                puntos_esfuerzo=puntos_esfuerzo,
+                p_rango=p_rango,
+            )
+            imagenes.append((section_name, str(img_path)))
+            md_bloques.append(
+                f"## Superficie de interacción – {section_name}\n"
+                f"```text\nImagen: {img_path.name}\n"
+                f"Columnas: {cols_txt}\n"
+                f"Esfuerzos finales (Station 0): {len(puntos_esfuerzo)}\n```\n"
+            )
+        except Exception:
+            continue
+
+    return imagenes, md_bloques
+
+
+def handle_columna_report(args: list[str]) -> str:
+    """cas columna report [nombre]
+
+    Genera reporte consolidado del diseño E.060 (Markdown y Word), ejecutando
+    el procedimiento completo y agregando gráficos 3D de superficies de interacción
+    con los esfuerzos finales de cada columna, agrupados por diagrama asignado
+    (igual estilo que el reporte de muros).
+    """
+    pp = _project()
+
+    try:
+        texto_diseno = handle_columna_diseno([])
+    except InvalidInput:
+        raise
+    except Exception as e:
+        raise InvalidInput(f"No se pudo ejecutar el diseño para el reporte: {e}") from e
+
+    titulo_rep = "REPORTE DE DISEÑO DE COLUMNAS E.060"
+    md_partes: list[str] = [f"# {titulo_rep}\n"]
+    md_partes.append(f"## Procedimiento y resultados\n\n```text\n{texto_diseno}\n```\n")
+
+    esfuerzos_fin = read_results_csv(pp, "columnas/esfuerzos_finales.csv")
+    asignaciones = read_csv(pp, "col_asignaciones")
+    diagramas = read_json(pp, "diagramas.json") or {}
+    props = read_csv(pp, "col_props")
+    props_unique = {str(r.get("Unique_Name", "")).strip().upper() for r in props}
+
+    imagenes: list[tuple[str, str]] = []
+    if esfuerzos_fin and asignaciones and diagramas and props_unique:
+        imagenes, bloques_md = _imagenes_diagramas_columnas(
+            pp, esfuerzos_fin, asignaciones, diagramas, props_unique
+        )
+        if bloques_md:
+            md_partes.append("## Superficies de interacción P-M\n")
+            md_partes.extend(bloques_md)
+
+    nombre = args[0].strip() if args else "general"
+    nombre_limpio = "".join(c for c in nombre if c.isalnum() or c in ("-", "_")).strip() or "general"
+    base = f"columnas_reporte_{nombre_limpio}"
+    results_dir = pp / "results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    md_path = results_dir / f"{base}.md"
+    docx_path = results_dir / f"{base}.docx"
+
+    salidas = [f"{titulo_rep}\n{'=' * 50}\n\n", texto_diseno]
+
+    try:
+        md_path.write_text("\n\n".join(md_partes), encoding="utf-8")
+        docx_ok = _generar_docx_columnas(md_partes, str(docx_path), imagenes or None)
+        msg = f"Reporte guardado en results/: '{base}.md'"
+        if docx_ok:
+            msg += f", '{base}.docx'"
+        if imagenes:
+            msg += f" ({len(imagenes)} diagrama(s) P-M)"
+        salidas.append(f"\n\n{'-' * 50}\n\n{msg}")
+    except Exception as e:
+        salidas.append(f"\n\n{'-' * 50}\n\nNo se pudo guardar reporte: {e}")
+
+    return "\n".join(salidas)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1271,7 +2075,7 @@ def handle_columna_diseno(args: list[str]) -> str:
         tabla1 = "TABLA 1: PROPIEDADES DE COLUMNAS ANALIZADAS\n\n(no hay propiedades de columnas definidas)\n"
 
     # Encadenar el resto de pasos para mostrar todas las tablas
-    outputs: list[str] = [tabla1]
+    outputs: list[str] = [PROCEDIMIENTO_COLUMNAS_E060, tabla1]
     outputs.append(handle_columna_q([]))
     outputs.append(handle_columna_esbeltez([]))
     outputs.append(handle_columna_segundo_orden([]))
@@ -1314,6 +2118,7 @@ def handle_columna_etabs_diseno(args: list[str]) -> str:
     diagrama_default = args[2] if len(args) > 2 else nominales[0]
     if diagrama_default not in nominales:
         diagrama_default = nominales[0]
+    ultimos_set = {k.replace("_ultimo", "") for k in diagramas if "_ultimo" in k}
 
     nuevos = []
     for un in un_esf:
@@ -1325,11 +2130,34 @@ def handle_columna_etabs_diseno(args: list[str]) -> str:
             "Diagrama_Ultimo": diagrama_default,
         })
 
+    reparadas = 0
+    for r in asignaciones:
+        nom = str(r.get("Diagrama_Nominal", "")).strip()
+        ult = str(r.get("Diagrama_Ultimo", "")).strip()
+        if nom and nom not in nominales:
+            viejo = nom
+            r["Diagrama_Nominal"] = diagrama_default
+            if not ult or ult == viejo or ult not in ultimos_set:
+                r["Diagrama_Ultimo"] = diagrama_default
+            reparadas += 1
+        elif ult and ult not in ultimos_set and ult not in nominales:
+            r["Diagrama_Ultimo"] = str(r.get("Diagrama_Nominal", diagrama_default)).strip() or diagrama_default
+            reparadas += 1
+
+    fieldnames = ELEMENT_FIELDNAMES.get(
+        "col_asignaciones", ["Unique_Name", "Diagrama_Nominal", "Diagrama_Ultimo"]
+    )
     if nuevos:
-        fieldnames = ELEMENT_FIELDNAMES.get("col_asignaciones", ["Unique_Name", "Diagrama_Nominal", "Diagrama_Ultimo"])
-        all_asig = asignaciones + nuevos
-        write_csv(pp, all_asig, "col_asignaciones", fieldnames)
+        asignaciones = asignaciones + nuevos
+    if nuevos or reparadas:
+        write_csv(pp, asignaciones, "col_asignaciones", fieldnames)
+    if nuevos:
         msg_import += f"\n\nAuto-asignacion: {len(nuevos)} columnas -> diagrama '{diagrama_default}'"
+    if reparadas:
+        msg_import += (
+            f"\n\nAsignaciones reparadas: diagramas inexistentes -> '{diagrama_default}' "
+            f"(revise con 'cas columna asignar' si cada columna requiere otra seccion)."
+        )
 
     msg_diseno = handle_columna_diseno([])
     return msg_import + "\n\n" + msg_diseno

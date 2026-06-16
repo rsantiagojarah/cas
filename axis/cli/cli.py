@@ -45,6 +45,7 @@ from axis.cli.handlers_diseno import (
     handle_inercia_fisurada,
     handle_results_flexion,
     handle_cortante_viga,
+    handle_cortante_calc,
     handle_results_cortante,
 )
 from axis.cli.handlers_inercia import (
@@ -93,6 +94,7 @@ from axis.cli.handlers_muros import (
 from axis.cli.handlers_columnas import (
     handle_columna_props,
     handle_columna_props_list,
+    handle_columna_props_bulk,
     handle_columna_props_remove,
     handle_columna_esfuerzos,
     handle_columna_esfuerzos_list,
@@ -101,6 +103,7 @@ from axis.cli.handlers_columnas import (
     handle_columna_alturas,
     handle_columna_factor_r,
     handle_columna_asignar,
+    handle_columna_asignar_bulk,
     handle_columna_diagrama,
     handle_columna_q,
     handle_columna_esbeltez,
@@ -115,6 +118,7 @@ from axis.cli.handlers_columnas import (
     handle_columna_etabs_import,
     handle_columna_diseno,
     handle_columna_etabs_diseno,
+    handle_columna_report,
 )
 from axis.cli.router import dispatch
 from axis.cli.repl import run_repl, get_slash_commands_text
@@ -160,6 +164,7 @@ HANDLERS = {
     "lambda": handle_ie_lambda,
     ("results", "flexion"): handle_results_flexion,
     ("cortante", "viga"): handle_cortante_viga,
+    ("cortante", "calc"): handle_cortante_calc,
     ("results", "cortante"): handle_results_cortante,
     "sismo": handle_sismo,
     ("sismo", "2026"): handle_sismo_2026,
@@ -191,6 +196,7 @@ HANDLERS = {
     # Columnas - Datos
     ("columna", "props"): handle_columna_props,
     ("columna", "props-list"): handle_columna_props_list,
+    ("columna", "props-bulk"): handle_columna_props_bulk,
     ("columna", "props-remove"): handle_columna_props_remove,
     ("columna", "esfuerzos"): handle_columna_esfuerzos,
     ("columna", "esfuerzos-list"): handle_columna_esfuerzos_list,
@@ -199,6 +205,7 @@ HANDLERS = {
     ("columna", "alturas"): handle_columna_alturas,
     ("columna", "factor-r"): handle_columna_factor_r,
     ("columna", "asignar"): handle_columna_asignar,
+    ("columna", "asignar-bulk"): handle_columna_asignar_bulk,
     ("columna", "diagrama"): handle_columna_diagrama,
     # Columnas - Análisis (9 pasos)
     ("columna", "q"): handle_columna_q,
@@ -214,6 +221,7 @@ HANDLERS = {
     ("columna", "etabs-import"): handle_columna_etabs_import,
     ("columna", "diseno"): handle_columna_diseno,
     ("columna", "etabs-diseno"): handle_columna_etabs_diseno,
+    ("columna", "report"): handle_columna_report,
 }
 
 
