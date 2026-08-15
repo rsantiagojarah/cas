@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from axis.cli.handlers_espectro import handle_espectro
 from axis.sismico.espectro_etabs_2026 import PERIODOS_ETABS, generar_filas_sa, serializar_tabla_etabs
-from axis.sismico.etapa1_peligro_2026 import factor_amplificacion_c
+from axis.sismico.etapa1_peligro_2026 import factor_amplificacion_c, tabla_c_vs_t
 
 
 class TestEspectroE0302026(unittest.TestCase):
@@ -43,6 +43,14 @@ class TestEspectroE0302026(unittest.TestCase):
         self.assertAlmostEqual(sa[2], 0.35)
         self.assertAlmostEqual(sa[3], 0.35)
 
+    def test_incluye_puntos_limite_tabla_6(self) -> None:
+        tp, tl = 0.9, 1.6
+        periodos_ct = [t for t, _c in tabla_c_vs_t(tp, tl)]
+        periodos_sa = [fila["Periodo"] for fila in generar_filas_sa(0.35, 1.0, 1.2, tp, tl, 3.0)]
+        for t in (0.0, 0.18, 0.9, 1.6):
+            self.assertIn(t, periodos_ct)
+            self.assertIn(t, periodos_sa)
+
     def test_serializar_sin_cabecera(self) -> None:
         filas = generar_filas_sa(0.35, 1.0, 1.15, 0.6, 3.0, 8.0)
         texto = serializar_tabla_etabs(filas)
@@ -58,7 +66,8 @@ class TestEspectroE0302026(unittest.TestCase):
             self.assertTrue(ruta.exists())
             self.assertIn("Archivo ETABS guardado", salida)
             lineas = ruta.read_text(encoding="ascii").strip().splitlines()
-            self.assertEqual(len(lineas), 23)
+            self.assertIn("0.1200\t", lineas[2])
+            self.assertEqual(len(lineas), 24)
 
     @patch("axis.cli.handlers_espectro.seleccionar_ruta_guardado", return_value=None)
     def test_cli_cancelacion(self, _mock) -> None:

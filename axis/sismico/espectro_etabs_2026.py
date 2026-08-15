@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from axis.sismico.etapa1_peligro_2026 import factor_amplificacion_c
+from axis.sismico.etapa1_peligro_2026 import factor_amplificacion_c, periodos_espectro_con_limites
 
 PERIODOS_ETABS: tuple[float, ...] = (
     0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
@@ -29,7 +29,8 @@ def generar_filas_sa(
         raise ValueError("Tp y Tl deben ser mayores que 0.")
     if tl <= tp:
         raise ValueError("Tl debe ser mayor que Tp (Tabla 6 E.030 2026).")
-    lista = list(periodos if periodos is not None else PERIODOS_ETABS)
+    base = periodos if periodos is not None else PERIODOS_ETABS
+    lista = periodos_espectro_con_limites(tp, tl, periodos=base)
     filas: list[dict[str, float]] = []
     for t in lista:
         c = factor_amplificacion_c(t, tp, tl)
